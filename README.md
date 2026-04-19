@@ -3,6 +3,9 @@
 > **Artificial Life Observation**
 > A contemplative real-time simulation of an artificial biological entity.
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/4e83cae0-ecf9-4057-a7a0-6532c3fd2ecf" />
+
+
 Neuroflora is an interactive visual piece designed for observation: a procedural creature that reacts autonomously to luminous stimuli in a void-like space.
 
 ## Concept
