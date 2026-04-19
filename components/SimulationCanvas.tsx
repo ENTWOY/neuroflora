@@ -5,21 +5,35 @@ import { useCanvasSetup } from "@/hooks/useCanvasSetup";
 import { useAnimationLoop } from "@/hooks/useAnimationLoop";
 import { SimulationEngine } from "@/simulation/SimulationEngine";
 
+interface SimulationCanvasProps {
+  /** When false, the canvas renders the static scene but does not advance the simulation. */
+  isRunning: boolean;
+}
+
 /**
  * SimulationCanvas — the main client component.
  * Creates the simulation engine outside React state and drives it via RAF.
  */
-export default function SimulationCanvas() {
+export default function SimulationCanvas({ isRunning }: SimulationCanvasProps) {
   const { canvasRef, dimensions } = useCanvasSetup();
   const engineRef = useRef<SimulationEngine | null>(null);
   const initializedRef = useRef(false);
+  const isRunningRef = useRef(isRunning);
+
+  // Keep a ref in sync so the RAF callback always reads the latest value
+  useEffect(() => {
+    isRunningRef.current = isRunning;
+  }, [isRunning]);
 
   // Tick callback — runs every frame, outside React render cycle
   const onTick = useCallback((dt: number) => {
     const engine = engineRef.current;
     if (!engine) return;
 
-    engine.update(dt);
+    // Only advance simulation when running; always render the static scene
+    if (isRunningRef.current) {
+      engine.update(dt);
+    }
     engine.render();
   }, []);
 

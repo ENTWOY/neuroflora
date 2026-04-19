@@ -108,13 +108,8 @@ export class SimulationEngine {
       s.circles
     );
 
-    // Safety net: catch anything that got through
-    const swept = this.collision.sweepLeftBoundary(s.circles, 5);
-    collisions.push(...swept);
-
-    // ─── Process Collisions ───────────────────────────────────────
+    // ─── Process Collisions (tentacle captures only) ──────────────
     for (const hit of collisions) {
-      s.score++;
       this.particles.emit(hit.position, hit.circleHue);
     }
 
@@ -155,7 +150,7 @@ export class SimulationEngine {
     this.renderParticles(ctx);
 
     // ─── HUD ──────────────────────────────────────────────────────
-    this.renderHUD(ctx, w);
+    this.renderHUD(ctx, w, h);
 
     ctx.restore();
   }
@@ -344,16 +339,15 @@ export class SimulationEngine {
     ctx.restore();
   }
 
-  private renderHUD(ctx: CanvasRenderingContext2D, w: number): void {
+  private renderHUD(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     ctx.save();
-    ctx.font = "14px 'Geist Mono', monospace";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.font = "11px 'Geist Mono', monospace";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
     ctx.textAlign = "right";
-    ctx.fillText(`Score: ${this.state.score}`, w - 20, 30);
     ctx.fillText(
-      `Speed: ${Math.round(this.config.circleSpeedMax + this.state.currentSpeedBonus)}`,
-      w - 20,
-      50
+      `${Math.round(this.config.circleSpeedMax + this.state.currentSpeedBonus)}`,
+      w - 16,
+      h - 16
     );
     ctx.restore();
   }
