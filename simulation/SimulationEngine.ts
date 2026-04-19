@@ -4,7 +4,7 @@ import { CircleSpawner } from "./CircleSpawner";
 import { PlantController } from "./PlantController";
 import { CollisionEngine } from "./CollisionEngine";
 import { ParticleSystem } from "./ParticleSystem";
-import { hsla, plantColor, glowColor } from "@/utils/color";
+import { hsla, plantColor } from "@/utils/color";
 
 /**
  * SimulationEngine — top-level orchestrator.
@@ -20,6 +20,7 @@ export class SimulationEngine {
   private particles: ParticleSystem;
   private ctx!: CanvasRenderingContext2D;
   private dpr: number = 1;
+  private backgroundGradient: CanvasGradient | null = null;
 
   constructor(config?: Partial<SimulationConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -35,6 +36,7 @@ export class SimulationEngine {
   init(ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number): void {
     this.ctx = ctx;
     this.dpr = dpr;
+    this.backgroundGradient = this.createBackgroundGradient(width, height);
 
     this.state = {
       circles: [],
@@ -60,6 +62,7 @@ export class SimulationEngine {
     this.state.canvasHeight = height;
     this.state.plant.basePosition.x = width * this.config.plantBaseXRatio;
     this.state.plant.basePosition.y = height * 0.5;
+    this.backgroundGradient = this.createBackgroundGradient(width, height);
   }
 
   /**
@@ -162,18 +165,22 @@ export class SimulationEngine {
     w: number,
     h: number
   ): void {
-    const gradient = ctx.createRadialGradient(
-      w * 0.3,
-      h * 0.5,
+    ctx.fillStyle = this.backgroundGradient ?? this.createBackgroundGradient(w, h);
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  private createBackgroundGradient(width: number, height: number): CanvasGradient {
+    const gradient = this.ctx.createRadialGradient(
+      width * 0.3,
+      height * 0.5,
       0,
-      w * 0.5,
-      h * 0.5,
-      Math.max(w, h) * 0.8
+      width * 0.5,
+      height * 0.5,
+      Math.max(width, height) * 0.8
     );
     gradient.addColorStop(0, this.config.backgroundGradientInner);
     gradient.addColorStop(1, this.config.backgroundGradientOuter);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, w, h);
+    return gradient;
   }
 
   private renderCircleTrails(
@@ -323,7 +330,9 @@ export class SimulationEngine {
     const pool = this.particles.getPool();
 
     ctx.save();
-    ctx.globalCompositeOperation = "lighter";
+    if (this.config.useAdditiveParticles) {
+      ctx.globalCompositeOperation = "lighter";
+    }
 
     for (const p of pool) {
       if (!p.active) continue;
@@ -332,7 +341,7 @@ export class SimulationEngine {
       ctx.arc(p.position.x, p.position.y, p.size * alpha, 0, Math.PI * 2);
       ctx.fillStyle = hsla(p.hue, 100, 65, alpha * 0.8);
       ctx.shadowColor = hsla(p.hue, 100, 60, alpha * 0.5);
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = this.config.particleGlowBlur;
       ctx.fill();
     }
 

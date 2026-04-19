@@ -6,7 +6,7 @@ import {
   Circle,
   Vector2D,
 } from "@/types/simulation";
-import { vec, sub, magnitude, normalize, scale, add, distance } from "@/utils/vector";
+import { sub, normalize, scale, add, distance } from "@/utils/vector";
 import { layeredSine, lerpScalar, clamp } from "@/utils/math";
 
 /**
@@ -78,7 +78,6 @@ export class PlantController {
     canvasHeight: number,
     predictCirclePosition: (circle: Circle, time: number) => Vector2D
   ): void {
-    const cfg = this.config;
     plant.time += dt;
 
     // Gentle base sway
@@ -109,7 +108,7 @@ export class PlantController {
     const cfg = this.config;
 
     // Find or validate target
-    this.assignTarget(tentacle, plant, circles, predictCirclePosition);
+    this.assignTarget(tentacle, plant, circles);
 
     // Determine tip target
     if (tentacle.targetId !== null) {
@@ -175,8 +174,7 @@ export class PlantController {
   private assignTarget(
     tentacle: PlantTentacle,
     plant: PlantState,
-    circles: Circle[],
-    predictCirclePosition: (circle: Circle, time: number) => Vector2D
+    circles: Circle[]
   ): void {
     // If already targeting a valid circle, keep it
     if (tentacle.targetId !== null) {

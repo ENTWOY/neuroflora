@@ -12,7 +12,7 @@ export function useAnimationLoop(
   const runningRef = useRef(false);
 
   const loop = useCallback(
-    (timestamp: number) => {
+    function frame(timestamp: number) {
       if (!runningRef.current) return;
 
       if (lastTimeRef.current === 0) {
@@ -27,7 +27,7 @@ export function useAnimationLoop(
 
       onTick(dt);
 
-      rafRef.current = requestAnimationFrame(loop);
+      rafRef.current = requestAnimationFrame(frame);
     },
     [onTick]
   );

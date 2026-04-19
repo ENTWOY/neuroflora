@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { useCanvasSetup } from "@/hooks/useCanvasSetup";
 import { useAnimationLoop } from "@/hooks/useAnimationLoop";
 import { SimulationEngine } from "@/simulation/SimulationEngine";
+import { MOBILE_CONFIG_OVERRIDES } from "@/constants/simulation";
 
 interface SimulationCanvasProps {
   /** When false, the canvas renders the static scene but does not advance the simulation. */
@@ -48,7 +49,9 @@ export default function SimulationCanvas({ isRunning }: SimulationCanvasProps) {
     if (!ctx) return;
 
     if (!initializedRef.current) {
-      const engine = new SimulationEngine();
+      const engine = new SimulationEngine(
+        dimensions.isLowPower ? MOBILE_CONFIG_OVERRIDES : undefined
+      );
       engine.init(ctx, dimensions.width, dimensions.height, dimensions.dpr);
       engineRef.current = engine;
       initializedRef.current = true;

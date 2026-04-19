@@ -130,6 +130,8 @@ export interface SimulationConfig {
   plantGlowColor: string;
   backgroundGradientInner: string;
   backgroundGradientOuter: string;
+  particleGlowBlur: number;
+  useAdditiveParticles: boolean;
 }
 
 // ─── Engine State ───────────────────────────────────────────────────────────

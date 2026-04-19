@@ -51,4 +51,17 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   plantGlowColor: "rgba(0, 255, 136, 0.6)",
   backgroundGradientInner: "#0a1f2b",
   backgroundGradientOuter: "#020a0f",
+  particleGlowBlur: 10,
+  useAdditiveParticles: true,
+};
+
+export const MOBILE_CONFIG_OVERRIDES: Partial<SimulationConfig> = {
+  glowIntensity: 12,
+  maxTrailLength: 5,
+  particlesPerBurst: 8,
+  maxParticles: 160,
+  particleLifeMax: 0.55,
+  trailAlpha: 0.22,
+  particleGlowBlur: 4,
+  useAdditiveParticles: false,
 };

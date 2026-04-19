@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 interface CanvasSetupResult {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
-  dimensions: { width: number; height: number; dpr: number };
+  dimensions: { width: number; height: number; dpr: number; isLowPower: boolean };
 }
 
 /**
@@ -14,22 +14,28 @@ export function useCanvasSetup(): CanvasSetupResult {
     width: 0,
     height: 0,
     dpr: 1,
+    isLowPower: false,
   });
 
   const updateSize = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const dpr = window.devicePixelRatio || 1;
     const width = window.innerWidth;
     const height = window.innerHeight;
+    const isLowPower =
+      window.matchMedia("(pointer: coarse)").matches ||
+      navigator.maxTouchPoints > 0 ||
+      width < 768;
+    const dprCap = isLowPower ? 1.5 : 2;
+    const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
 
-    setDimensions({ width, height, dpr });
+    setDimensions({ width, height, dpr, isLowPower });
   }, []);
 
   useEffect(() => {
