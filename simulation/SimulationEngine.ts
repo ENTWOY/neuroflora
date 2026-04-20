@@ -5,6 +5,7 @@ import { PlantController } from "./PlantController";
 import { CollisionEngine } from "./CollisionEngine";
 import { ParticleSystem } from "./ParticleSystem";
 import { hsla, plantColor } from "@/utils/color";
+import { clamp, lerpScalar } from "@/utils/math";
 
 /**
  * SimulationEngine — top-level orchestrator.
@@ -12,6 +13,13 @@ import { hsla, plantColor } from "@/utils/color";
  * Keeps all mutable state outside React for maximum performance.
  */
 export class SimulationEngine {
+  private static readonly INITIAL_INTEGRITY = 100;
+  private static readonly ESCAPE_DAMAGE = 5;
+  private static readonly DAMAGE_FLASH_DECAY = 1.35;
+  private static readonly DAMAGE_FLASH_BASE_ALPHA = 0.14;
+  private static readonly DAMAGE_FLASH_PEAK_ALPHA = 0.42;
+  private static readonly COLLAPSE_DURATION = 1.5;
+
   private config: SimulationConfig;
   private state!: SimulationState;
   private spawner: CircleSpawner;
@@ -44,6 +52,12 @@ export class SimulationEngine {
       particles: this.particles.getPool(),
       elapsedTime: 0,
       score: 0,
+      integrity: SimulationEngine.INITIAL_INTEGRITY,
+      damageFlash: 0,
+      isCollapsing: false,
+      collapseProgress: 0,
+      collapseElapsed: 0,
+      collapseComplete: false,
       currentSpawnInterval: this.config.initialSpawnInterval,
       currentSpeedBonus: 0,
       timeSinceLastSpawn: 0,
@@ -71,6 +85,21 @@ export class SimulationEngine {
   update(dt: number): void {
     const s = this.state;
     s.elapsedTime += dt;
+    s.damageFlash = Math.max(0, s.damageFlash - dt * SimulationEngine.DAMAGE_FLASH_DECAY);
+
+    if (s.isCollapsing) {
+      s.collapseElapsed += dt;
+      s.collapseProgress = clamp(
+        s.collapseElapsed / SimulationEngine.COLLAPSE_DURATION,
+        0,
+        1
+      );
+      if (s.collapseProgress >= 1) {
+        s.collapseComplete = true;
+      }
+      this.particles.update(dt);
+      return;
+    }
 
     // ─── Difficulty Scaling ───────────────────────────────────────
     s.currentSpawnInterval = this.spawner.getCurrentSpawnInterval(s.elapsedTime);
@@ -120,9 +149,16 @@ export class SimulationEngine {
     this.particles.update(dt);
 
     // ─── Cleanup consumed/off-screen circles ──────────────────────
-    s.circles = s.circles.filter(
-      (c) => !c.consumed && c.position.x > -50
-    );
+    const survivors: Circle[] = [];
+    for (const circle of s.circles) {
+      if (circle.consumed) continue;
+      if (circle.position.x <= -50) {
+        this.applyIntegrityDamage(SimulationEngine.ESCAPE_DAMAGE);
+        continue;
+      }
+      survivors.push(circle);
+    }
+    s.circles = survivors;
   }
 
   /**
@@ -153,7 +189,10 @@ export class SimulationEngine {
     this.renderParticles(ctx);
 
     // ─── HUD ──────────────────────────────────────────────────────
-    this.renderHUD(ctx, w, h);
+    this.renderHUD(ctx, w);
+
+    // ─── Collapse Overlay ─────────────────────────────────────────
+    this.renderCollapseOverlay(ctx, w, h);
 
     ctx.restore();
   }
@@ -239,6 +278,7 @@ export class SimulationEngine {
   private renderPlant(ctx: CanvasRenderingContext2D): void {
     const plant = this.state.plant;
     const cfg = this.config;
+    const damageFlash = this.state.damageFlash;
 
     // Render base bulb
     ctx.beginPath();
@@ -254,6 +294,23 @@ export class SimulationEngine {
     ctx.shadowBlur = 25;
     ctx.fill();
     ctx.shadowBlur = 0;
+
+    // Damage feedback flash on plant core.
+    if (damageFlash > 0.01) {
+      ctx.beginPath();
+      ctx.arc(
+        plant.basePosition.x,
+        plant.basePosition.y,
+        22,
+        0,
+        Math.PI * 2
+      );
+      ctx.fillStyle = `rgba(255, 72, 72, ${
+        SimulationEngine.DAMAGE_FLASH_BASE_ALPHA +
+        damageFlash * SimulationEngine.DAMAGE_FLASH_PEAK_ALPHA
+      })`;
+      ctx.fill();
+    }
 
     // Render each tentacle
     for (let ti = 0; ti < plant.tentacles.length; ti++) {
@@ -348,16 +405,58 @@ export class SimulationEngine {
     ctx.restore();
   }
 
-  private renderHUD(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  private renderHUD(ctx: CanvasRenderingContext2D, w: number): void {
+    const integrity = Math.round(this.state.integrity);
+    const color = this.getIntegrityColor(integrity);
+
     ctx.save();
-    ctx.font = "11px 'Geist Mono', monospace";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.font = "12px 'Geist Mono', monospace";
+    ctx.fillStyle = color;
     ctx.textAlign = "right";
-    ctx.fillText(
-      `${Math.round(this.config.circleSpeedMax + this.state.currentSpeedBonus)}`,
-      w - 16,
-      h - 16
-    );
+    ctx.fillText(`${integrity}`, w - 16, 24);
     ctx.restore();
+  }
+
+  private renderCollapseOverlay(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number
+  ): void {
+    if (!this.state.isCollapsing && this.state.collapseProgress <= 0) return;
+
+    const alpha = lerpScalar(0, 0.92, this.state.collapseProgress);
+    ctx.save();
+    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+
+  private getIntegrityColor(integrity: number): string {
+    if (integrity <= 25) {
+      return "rgba(255, 86, 86, 0.86)";
+    }
+    if (integrity <= 50) {
+      return "rgba(255, 191, 88, 0.82)";
+    }
+    return "rgba(255, 255, 255, 0.35)";
+  }
+
+  private applyIntegrityDamage(amount: number): void {
+    const s = this.state;
+    if (s.isCollapsing) return;
+
+    s.integrity = Math.max(0, s.integrity - amount);
+    s.damageFlash = 1;
+
+    if (s.integrity <= 0) {
+      s.isCollapsing = true;
+      s.collapseElapsed = 0;
+      s.collapseProgress = 0;
+      s.collapseComplete = false;
+    }
+  }
+
+  isCollapseComplete(): boolean {
+    return this.state.collapseComplete;
   }
 }

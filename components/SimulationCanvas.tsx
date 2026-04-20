@@ -9,17 +9,23 @@ import { MOBILE_CONFIG_OVERRIDES } from "@/constants/simulation";
 interface SimulationCanvasProps {
   /** When false, the canvas renders the static scene but does not advance the simulation. */
   isRunning: boolean;
+  /** Fired once the internal collapse sequence reaches full blackout. */
+  onCollapseComplete?: () => void;
 }
 
 /**
  * SimulationCanvas — the main client component.
  * Creates the simulation engine outside React state and drives it via RAF.
  */
-export default function SimulationCanvas({ isRunning }: SimulationCanvasProps) {
+export default function SimulationCanvas({
+  isRunning,
+  onCollapseComplete,
+}: SimulationCanvasProps) {
   const { canvasRef, dimensions } = useCanvasSetup();
   const engineRef = useRef<SimulationEngine | null>(null);
   const initializedRef = useRef(false);
   const isRunningRef = useRef(isRunning);
+  const collapseReportedRef = useRef(false);
 
   // Keep a ref in sync so the RAF callback always reads the latest value
   useEffect(() => {
@@ -34,9 +40,13 @@ export default function SimulationCanvas({ isRunning }: SimulationCanvasProps) {
     // Only advance simulation when running; always render the static scene
     if (isRunningRef.current) {
       engine.update(dt);
+      if (engine.isCollapseComplete() && !collapseReportedRef.current) {
+        collapseReportedRef.current = true;
+        onCollapseComplete?.();
+      }
     }
     engine.render();
-  }, []);
+  }, [onCollapseComplete]);
 
   const { start, stop } = useAnimationLoop(onTick);
 
@@ -55,6 +65,7 @@ export default function SimulationCanvas({ isRunning }: SimulationCanvasProps) {
       engine.init(ctx, dimensions.width, dimensions.height, dimensions.dpr);
       engineRef.current = engine;
       initializedRef.current = true;
+      collapseReportedRef.current = false;
       start();
     } else {
       // Resize existing engine

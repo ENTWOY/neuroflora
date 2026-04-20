@@ -142,6 +142,12 @@ export interface SimulationState {
   particles: Particle[];
   elapsedTime: number;
   score: number;
+  integrity: number;
+  damageFlash: number;
+  isCollapsing: boolean;
+  collapseProgress: number;
+  collapseElapsed: number;
+  collapseComplete: boolean;
   currentSpawnInterval: number;
   currentSpeedBonus: number;
   timeSinceLastSpawn: number;
