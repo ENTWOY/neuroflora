@@ -130,7 +130,9 @@ export class SimulationEngine {
       s.plant,
       s.circles,
       dt,
+      s.canvasWidth,
       s.canvasHeight,
+      s.integrity,
       (circle, time) => this.spawner.predictCirclePosition(circle, time)
     );
 

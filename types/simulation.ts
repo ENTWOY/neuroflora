@@ -40,6 +40,15 @@ export interface PlantSegment {
   length: number;
 }
 
+export type PlantBehaviorMode = "idle" | "hunting" | "defensive";
+
+export interface PlantLearningState {
+  pressure: number;
+  aggression: number;
+  predictionLead: number;
+  coordination: number;
+}
+
 export interface PlantTentacle {
   segments: PlantSegment[];
   /** Current target circle id, or null if idle */
@@ -54,6 +63,18 @@ export interface PlantTentacle {
   idlePhase: number;
   /** Current tip target for IK solving */
   tipTarget: Vector2D;
+  /** Biases target persistence so tentacles feel intentional rather than twitchy */
+  commitment: number;
+  /** Prevents wasteful target swapping every frame */
+  retargetCooldown: number;
+  /** Soft reach limit used to adapt behavior under pressure */
+  desiredReach: number;
+  /** Smoothed tip velocity for anticipatory motion */
+  tipVelocity: Vector2D;
+  /** Last desired tip target before smoothing */
+  lastTipTarget: Vector2D;
+  /** Small per-tentacle offset for intentional motion variety */
+  noisePhase: number;
 }
 
 export interface PlantState {
@@ -62,6 +83,10 @@ export interface PlantState {
   tentacles: PlantTentacle[];
   /** Global time for idle animation */
   time: number;
+  /** High-level plant behavior used to blend heuristics smoothly */
+  mode: PlantBehaviorMode;
+  /** Lightweight adaptive state that evolves over time */
+  learning: PlantLearningState;
 }
 
 // ─── Particle System ────────────────────────────────────────────────────────
