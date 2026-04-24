@@ -74,8 +74,32 @@ export class SimulationEngine {
     this.dpr = dpr;
     this.state.canvasWidth = width;
     this.state.canvasHeight = height;
-    this.state.plant.basePosition.x = width * this.config.plantBaseXRatio;
-    this.state.plant.basePosition.y = height * 0.5;
+
+    // Translate the plant by the delta so tentacle segments follow the base.
+    // Without this, FABRIK would only resync on the next update() call —
+    // and when the start overlay is shown the simulation is paused, leaving
+    // the rendered bulb visibly detached from the tentacles on large screens.
+    const newBaseX = width * this.config.plantBaseXRatio;
+    const newBaseY = height * 0.5;
+    const dx = newBaseX - this.state.plant.basePosition.x;
+    const dy = newBaseY - this.state.plant.basePosition.y;
+    this.state.plant.basePosition.x = newBaseX;
+    this.state.plant.basePosition.y = newBaseY;
+    this.state.plant.anchorY = newBaseY;
+
+    if (dx !== 0 || dy !== 0) {
+      for (const tentacle of this.state.plant.tentacles) {
+        for (const seg of tentacle.segments) {
+          seg.position.x += dx;
+          seg.position.y += dy;
+        }
+        tentacle.tipTarget.x += dx;
+        tentacle.tipTarget.y += dy;
+        tentacle.lastTipTarget.x += dx;
+        tentacle.lastTipTarget.y += dy;
+      }
+    }
+
     this.backgroundGradient = this.createBackgroundGradient(width, height);
   }
 

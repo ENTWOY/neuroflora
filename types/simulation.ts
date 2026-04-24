@@ -78,8 +78,10 @@ export interface PlantTentacle {
 }
 
 export interface PlantState {
-  /** Base anchor point of the plant (left side of screen) */
+  /** Base anchor point of the plant (left side of screen). Animated each frame. */
   basePosition: Vector2D;
+  /** Canonical vertical center; basePosition.y oscillates around this without drifting. */
+  anchorY: number;
   tentacles: PlantTentacle[];
   /** Global time for idle animation */
   time: number;

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -16,6 +16,14 @@ export const metadata: Metadata = {
   title: "NeuroFlora — Interactive Plant Simulation",
   description:
     "A high-performance procedural plant creature that autonomously intercepts incoming entities. Built with Next.js, TypeScript, and HTML5 Canvas.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#020a0f",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({

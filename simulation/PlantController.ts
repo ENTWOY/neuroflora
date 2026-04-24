@@ -82,6 +82,7 @@ export class PlantController {
 
     return {
       basePosition: { x: baseX, y: baseY },
+      anchorY: baseY,
       tentacles,
       time: 0,
       mode: "idle",
@@ -108,9 +109,11 @@ export class PlantController {
   ): void {
     plant.time += dt;
 
-    // Gentle base sway
-    plant.basePosition.y +=
-      layeredSine(plant.time * 0.3, 0) * 0.3;
+    // Gentle base sway — derived from a stable anchor so the position never
+    // drifts and is independent of frame rate. anchorY is set on
+    // create/resize and represents the canonical vertical center.
+    plant.basePosition.y =
+      plant.anchorY + layeredSine(plant.time * 0.3, 0) * 4;
 
     // Claims are rebuilt each frame so tentacles can re-coordinate as threats change.
     for (let i = 0; i < circles.length; i++) {

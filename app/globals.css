@@ -15,6 +15,7 @@
 * {
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
 }
 
 html,
@@ -48,7 +49,12 @@ canvas {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1.5rem;
+  gap: clamp(0.75rem, 2.5vh, 1.5rem);
+  /* Respect notches / dynamic UI bars on mobile */
+  padding: max(env(safe-area-inset-top), 1rem)
+           max(env(safe-area-inset-right), 1.25rem)
+           max(env(safe-area-inset-bottom), 1rem)
+           max(env(safe-area-inset-left), 1.25rem);
   background: rgba(2, 10, 15, 0.55);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -56,6 +62,7 @@ canvas {
               visibility 0.8s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 1;
   visibility: visible;
+  text-align: center;
 }
 
 .neuroflora-overlay--hidden {
@@ -68,36 +75,44 @@ canvas {
 
 .neuroflora-title {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
-  font-size: clamp(2rem, 5vw, 3.5rem);
+  /* Scales smoothly from ~1.6rem on small phones to 3.5rem on desktop */
+  font-size: clamp(1.6rem, 6vw, 3.5rem);
   font-weight: 200;
-  letter-spacing: 0.35em;
+  letter-spacing: clamp(0.18em, 0.4vw, 0.35em);
   color: rgba(255, 255, 255, 0.75);
   text-transform: uppercase;
   user-select: none;
   text-align: center;
+  max-width: 100%;
+  line-height: 1.1;
+  word-break: break-word;
 }
 
 /* ─── Subtitle ──────────────────────────────────────────────────────────── */
 
 .neuroflora-subtitle {
   font-family: var(--font-geist-mono), monospace;
-  font-size: clamp(0.6rem, 1.2vw, 0.8rem);
+  font-size: clamp(0.65rem, 1.4vw, 0.8rem);
   font-weight: 400;
-  letter-spacing: 0.2em;
+  letter-spacing: clamp(0.12em, 0.4vw, 0.2em);
   color: rgba(255, 255, 255, 0.25);
   text-transform: uppercase;
   user-select: none;
-  margin-top: -0.5rem;
+  margin-top: -0.25rem;
+  max-width: min(40ch, 90%);
 }
 
 /* ─── CTA Button ────────────────────────────────────────────────────────── */
 
 .neuroflora-cta {
   position: relative;
-  margin-top: 2rem;
-  padding: 0.75rem 2.5rem;
+  margin-top: clamp(1rem, 3vh, 2rem);
+  padding: clamp(0.85rem, 1.6vh, 1rem) clamp(1.75rem, 6vw, 2.75rem);
+  /* iOS HIG / Material both want ≥44–48px touch targets */
+  min-height: 44px;
+  min-width: clamp(160px, 50vw, 220px);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 0.7rem;
+  font-size: clamp(0.7rem, 1.6vw, 0.78rem);
   font-weight: 400;
   letter-spacing: 0.25em;
   text-transform: uppercase;
@@ -106,20 +121,10 @@ canvas {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 2px;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   transition: color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
   animation: cta-pulse 3s ease-in-out infinite;
-}
-
-.neuroflora-cta:hover {
-  color: rgba(255, 255, 255, 0.85);
-  border-color: rgba(0, 255, 136, 0.35);
-  box-shadow: 0 0 20px rgba(0, 255, 136, 0.08),
-              inset 0 0 20px rgba(0, 255, 136, 0.03);
-  animation: none;
-}
-
-.neuroflora-cta:active {
-  transform: scale(0.98);
 }
 
 @keyframes cta-pulse {
@@ -130,5 +135,76 @@ canvas {
   50% {
     border-color: rgba(255, 255, 255, 0.18);
     box-shadow: 0 0 15px rgba(0, 255, 136, 0.04);
+  }
+}
+
+/* ─── Responsive Breakpoints ────────────────────────────────────────────── */
+
+/* Mobile portrait (≤640px): tighten spacing, ensure tap targets stay big */
+@media (max-width: 640px) {
+  .neuroflora-overlay {
+    gap: 0.85rem;
+  }
+  .neuroflora-subtitle {
+    margin-top: 0;
+  }
+  .neuroflora-cta {
+    margin-top: 1.25rem;
+    width: min(280px, 80vw);
+  }
+}
+
+/* Short / landscape phones — keep title from clipping above the keyboard area */
+@media (max-height: 480px) {
+  .neuroflora-overlay {
+    gap: 0.5rem;
+    justify-content: center;
+  }
+  .neuroflora-title {
+    font-size: clamp(1.4rem, 4.5vh, 2.25rem);
+  }
+  .neuroflora-cta {
+    margin-top: 0.75rem;
+  }
+}
+
+/* Tablet (641–1024px): ease the letter-spacing so the title stays one line */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .neuroflora-title {
+    font-size: clamp(2.25rem, 4.5vw, 2.75rem);
+  }
+  .neuroflora-overlay {
+    gap: 1.25rem;
+  }
+}
+
+/* Desktop (≥1025px): cap title width so it doesn't read as a banner on ultra-wide */
+@media (min-width: 1025px) {
+  .neuroflora-title {
+    max-width: min(720px, 70vw);
+  }
+}
+
+/* Hover-capable pointers only — avoids sticky :hover state on touch */
+@media (hover: hover) and (pointer: fine) {
+  .neuroflora-cta:hover {
+    color: rgba(255, 255, 255, 0.85);
+    border-color: rgba(0, 255, 136, 0.35);
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.08),
+                inset 0 0 20px rgba(0, 255, 136, 0.03);
+    animation: none;
+  }
+}
+
+.neuroflora-cta:active {
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neuroflora-overlay {
+    transition: none;
+  }
+  .neuroflora-cta {
+    animation: none;
   }
 }
