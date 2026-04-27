@@ -167,8 +167,29 @@ export class SimulationEngine {
     );
 
     // ─── Process Collisions (tentacle captures only) ──────────────
+    const predictor = (circle: Circle, time: number) =>
+      this.spawner.predictCirclePosition(circle, time);
+
     for (const hit of collisions) {
       this.particles.emit(hit.position, hit.circleHue);
+
+      // Regeneration: competence buys time, but early scars never fully heal.
+      if (s.integrity < this.config.regenIntegrityCap) {
+        s.integrity = Math.min(
+          s.integrity + this.config.captureRegenAmount,
+          this.config.regenIntegrityCap
+        );
+      }
+
+      // Post-capture momentum: freed tentacle immediately seeks next target.
+      this.plant.onCapture(
+        s.plant,
+        hit.tentacleIndex,
+        s.circles,
+        s.canvasWidth,
+        s.canvasHeight,
+        predictor
+      );
     }
 
     // ─── Update Particles ─────────────────────────────────────────

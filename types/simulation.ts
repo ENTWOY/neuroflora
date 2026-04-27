@@ -40,13 +40,38 @@ export interface PlantSegment {
   length: number;
 }
 
-export type PlantBehaviorMode = "idle" | "hunting" | "defensive";
+export type PlantBehaviorMode = "idle" | "hunting" | "defensive" | "desperate";
+
+// ─── Spatial Threat Assessment ──────────────────────────────────────────────
+
+/** Snapshot of one horizontal zone — reused each frame, never re-allocated */
+export interface ThreatZone {
+  count: number;
+  fastestSpeed: number;
+  lowestETA: number;
+}
+
+/** Battlefield overview rebuilt each frame from live orb positions */
+export interface ThreatMap {
+  /** [far, mid, near, critical] — 4 fixed pre-allocated slots */
+  zones: ThreatZone[];
+  /** Circle id with the lowest ETA to escape, -1 if field is clear */
+  globalMostDangerous: number;
+  totalActive: number;
+  averageSpeed: number;
+}
 
 export interface PlantLearningState {
   pressure: number;
   aggression: number;
   predictionLead: number;
   coordination: number;
+  /** Running average of orb speeds — sharpens prediction as the swarm accelerates */
+  averageOrbSpeed: number;
+  /** Cumulative captures — modulates confidence in intercept trajectories */
+  captureCount: number;
+  /** Stress-driven reaction multiplier — a cornered organism fights harder */
+  reactionBoost: number;
 }
 
 export interface PlantTentacle {
@@ -89,6 +114,8 @@ export interface PlantState {
   mode: PlantBehaviorMode;
   /** Lightweight adaptive state that evolves over time */
   learning: PlantLearningState;
+  /** Spatial threat assessment rebuilt each frame — the organism's "vision" */
+  threatMap: ThreatMap;
 }
 
 // ─── Particle System ────────────────────────────────────────────────────────
@@ -161,6 +188,18 @@ export interface SimulationConfig {
   backgroundGradientOuter: string;
   particleGlowBlur: number;
   useAdditiveParticles: boolean;
+
+  // Survival Intelligence
+  /** Integrity restored per successful capture — rewards competence */
+  captureRegenAmount: number;
+  /** Regen ceiling — early mistakes leave permanent scars */
+  regenIntegrityCap: number;
+  /** Integrity threshold that triggers the desperation protocol */
+  desperationThreshold: number;
+  /** ETA (seconds) below which an orb is classified as critical (RED triage) */
+  triageRedETA: number;
+  /** ETA (seconds) below which an unreachable orb is abandoned (BLACK triage) */
+  triageBlackMargin: number;
 }
 
 // ─── Engine State ───────────────────────────────────────────────────────────

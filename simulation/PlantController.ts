@@ -6,6 +6,7 @@ import {
   Circle,
   Vector2D,
   PlantBehaviorMode,
+  ThreatMap,
 } from "@/types/simulation";
 import { sub, normalize, scale, add, distance } from "@/utils/vector";
 import { layeredSine, lerpScalar, clamp } from "@/utils/math";
@@ -20,6 +21,16 @@ export class PlantController {
   private static readonly RETARGET_THRESHOLD = 0.55;
   private static readonly MIN_LEAD_TIME = 0.06;
   private static readonly MAX_LEAD_TIME = 0.52;
+
+  // Survival intelligence thresholds
+  private static readonly ESCAPE_X = -50;
+  private static readonly DESPERATION_REACH_BIAS = 1.0;
+  private static readonly DESPERATION_COOLDOWN = 0.04;
+  private static readonly DESPERATION_RESPONSIVENESS = 6;
+  private static readonly BLACK_TRIAGE_SCORE = -1000;
+  private static readonly SPEED_EMA_RATE = 0.5;
+  private static readonly REACTION_BOOST_MAX = 5;
+  private static readonly PREEMPTIVE_JAW_DIST_RATIO = 2.2;
 
   private config: SimulationConfig;
 
@@ -91,7 +102,11 @@ export class PlantController {
         aggression: 0.35,
         predictionLead: 0.9,
         coordination: 1,
+        averageOrbSpeed: 150,
+        captureCount: 0,
+        reactionBoost: 0,
       },
+      threatMap: this.createThreatMap(),
     };
   }
 
@@ -119,6 +134,9 @@ export class PlantController {
     for (let i = 0; i < circles.length; i++) {
       circles[i].targeted = false;
     }
+
+    // Rebuild spatial awareness before any decision-making.
+    this.buildThreatMap(plant, circles, canvasWidth);
 
     this.updateBehaviorState(plant, circles, dt, canvasWidth, integrity);
 
@@ -148,21 +166,20 @@ export class PlantController {
     let activeCount = 0;
     let maxUrgency = 0;
     let maxSpeedThreat = 0;
+    let maxSpeed = 0;
 
     for (let i = 0; i < circles.length; i++) {
       const circle = circles[i];
       if (circle.consumed) continue;
 
       activeCount++;
+      const speed = Math.abs(circle.velocity.x);
       const urgency = clamp(1 - circle.position.x / Math.max(canvasWidth, 1), 0, 1);
-      const speedThreat = clamp(
-        Math.abs(circle.velocity.x) / this.config.maxCircleSpeed,
-        0,
-        1
-      );
+      const speedThreat = clamp(speed / this.config.maxCircleSpeed, 0, 1);
 
       if (urgency > maxUrgency) maxUrgency = urgency;
       if (speedThreat > maxSpeedThreat) maxSpeedThreat = speedThreat;
+      if (speed > maxSpeed) maxSpeed = speed;
     }
 
     const stress = clamp(1 - integrity / 100, 0, 1);
@@ -172,28 +189,50 @@ export class PlantController {
       1
     );
 
+    // The organism tracks how fast the swarm is moving — a long memory that
+    // sharpens prediction as difficulty ramps, rather than reacting frame-by-frame.
+    plant.learning.averageOrbSpeed = lerpScalar(
+      plant.learning.averageOrbSpeed,
+      Math.max(maxSpeed, plant.learning.averageOrbSpeed * 0.98),
+      dt * PlantController.SPEED_EMA_RATE
+    );
+
+    // A cornered organism fights harder — reaction time tightens as integrity drops.
+    const desperationFactor = clamp(
+      (this.config.desperationThreshold - integrity) / Math.max(this.config.desperationThreshold, 1),
+      0,
+      1
+    );
+    plant.learning.reactionBoost = lerpScalar(
+      plant.learning.reactionBoost,
+      desperationFactor * PlantController.REACTION_BOOST_MAX,
+      dt * 2.5
+    );
+
     // EMA-style blending creates lightweight adaptation without heavy state.
     plant.learning.pressure = lerpScalar(plant.learning.pressure, rawPressure, dt * 1.8);
     plant.learning.aggression = lerpScalar(
       plant.learning.aggression,
-      clamp(0.35 + rawPressure * 0.8 + stress * 0.4, 0.25, 1.25),
+      clamp(0.35 + rawPressure * 0.8 + stress * 0.4 + desperationFactor * 0.5, 0.25, 1.45),
       dt * 0.9
     );
     plant.learning.predictionLead = lerpScalar(
       plant.learning.predictionLead,
-      clamp(0.88 + rawPressure * 0.28 + stress * 0.12, 0.82, 1.22),
+      clamp(0.88 + rawPressure * 0.28 + stress * 0.12 + desperationFactor * 0.15, 0.82, 1.35),
       dt * 0.7
     );
     plant.learning.coordination = lerpScalar(
       plant.learning.coordination,
-      clamp(1 - rawPressure * 0.35, 0.58, 1),
+      clamp(1 - rawPressure * 0.35 - desperationFactor * 0.3, 0.35, 1),
       dt * 0.8
     );
 
-    plant.mode = this.getMode(plant.learning.pressure, stress);
+    plant.mode = this.getMode(plant.learning.pressure, stress, desperationFactor);
   }
 
-  private getMode(pressure: number, stress: number): PlantBehaviorMode {
+  private getMode(pressure: number, stress: number, desperation: number): PlantBehaviorMode {
+    // The organism's will to survive overrides all other behavioral states.
+    if (desperation > 0.1) return "desperate";
     if (pressure < 0.22) return "idle";
     if (stress > 0.45 || pressure > 0.72) return "defensive";
     return "hunting";
@@ -211,11 +250,16 @@ export class PlantController {
   ): void {
     const cfg = this.config;
     const maxReach = cfg.segmentLength * cfg.segmentsPerTentacle;
+    const isDesperate = plant.mode === "desperate";
 
-    tentacle.retargetCooldown = Math.max(0, tentacle.retargetCooldown - dt);
+    // Desperation compresses retarget cooldown — snap between targets instantly.
+    const cooldownDecay = isDesperate ? dt * 8 : dt;
+    tentacle.retargetCooldown = Math.max(0, tentacle.retargetCooldown - cooldownDecay);
 
-    const reachBias =
-      plant.mode === "idle"
+    // Reach bias extends to absolute maximum during last-stand.
+    const reachBias = isDesperate
+      ? PlantController.DESPERATION_REACH_BIAS
+      : plant.mode === "idle"
         ? 0.72
         : plant.mode === "defensive"
           ? 0.9
@@ -237,6 +281,10 @@ export class PlantController {
       predictCirclePosition
     );
 
+    // Adaptive responsiveness: base skill + stress-driven reaction boost.
+    const baseResponsiveness = 11 + plant.learning.aggression * 4;
+    const adaptiveResponsiveness = baseResponsiveness + plant.learning.reactionBoost;
+
     if (target) {
       const tipPos = tentacle.segments[tentacle.segments.length - 1].position;
       const reachSpeed = 340 + plant.learning.aggression * 120;
@@ -248,21 +296,23 @@ export class PlantController {
         ) * plant.learning.predictionLead;
 
       const predicted = predictCirclePosition(target, interceptTime);
+      // Noise suppressed under pressure — the organism becomes laser-focused.
+      const noiseDampen = isDesperate ? 0.1 : (1 - plant.learning.pressure);
       const intentNoise =
-        layeredSine(plant.time * 0.9, tentacle.noisePhase) *
-        4 *
-        (1 - plant.learning.pressure);
+        layeredSine(plant.time * 0.9, tentacle.noisePhase) * 4 * noiseDampen;
 
       let desiredX = predicted.x + intentNoise * 0.35;
       let desiredY = clamp(predicted.y + intentNoise, 30, canvasHeight - 30);
 
-      // A soft lane preference keeps tentacles from piling onto the same vertical corridor.
-      const laneY = this.getLaneY(tentacleIndex, plant.tentacles.length, canvasHeight);
-      desiredY = lerpScalar(
-        desiredY,
-        laneY,
-        (1 - plant.learning.coordination) * 0.15
-      );
+      // Lane preference relaxes during desperation — formation costs more than it saves.
+      if (!isDesperate) {
+        const laneY = this.getLaneY(tentacleIndex, plant.tentacles.length, canvasHeight);
+        desiredY = lerpScalar(
+          desiredY,
+          laneY,
+          (1 - plant.learning.coordination) * 0.15
+        );
+      }
 
       const dx = desiredX - plant.basePosition.x;
       const dy = desiredY - plant.basePosition.y;
@@ -272,25 +322,24 @@ export class PlantController {
       desiredX = plant.basePosition.x + dx * reachScale;
       desiredY = plant.basePosition.y + dy * reachScale;
 
-      tentacle.jawTarget = plant.mode === "defensive" ? 1 : 0.9;
+      // Preemptive jaw opening: if closing distance is below threshold and
+      // commitment is high, open the jaw early for a wider capture window.
+      const closingDist = distance(tipPos, target.position);
+      const jawThreshold = (cfg.jawSize + target.radius) * PlantController.PREEMPTIVE_JAW_DIST_RATIO;
+      const shouldPreempt = closingDist < jawThreshold && tentacle.commitment > 0.6;
+
+      tentacle.jawTarget = shouldPreempt || isDesperate ? 1 : (plant.mode === "defensive" ? 1 : 0.9);
       tentacle.commitment = lerpScalar(tentacle.commitment, 1, dt * 4.5);
 
-      this.smoothTipTarget(
-        tentacle,
-        desiredX,
-        desiredY,
-        dt,
-        11 + plant.learning.aggression * 4
-      );
+      this.smoothTipTarget(tentacle, desiredX, desiredY, dt, adaptiveResponsiveness);
     } else {
-      const idleTarget = this.getIdleTarget(
-        tentacle,
-        tentacleIndex,
-        plant,
-        canvasHeight
-      );
+      // In desperation, even idle tentacles push outward toward patrol zones
+      // rather than swaying gently — every limb stays ready.
+      const idleTarget = isDesperate
+        ? this.getPatrolTarget(tentacleIndex, plant, canvasHeight)
+        : this.getIdleTarget(tentacle, tentacleIndex, plant, canvasHeight);
 
-      tentacle.jawTarget = 0;
+      tentacle.jawTarget = isDesperate ? 0.6 : 0;
       tentacle.commitment = lerpScalar(tentacle.commitment, 0, dt * 3.5);
 
       this.smoothTipTarget(
@@ -298,7 +347,7 @@ export class PlantController {
         idleTarget.x,
         idleTarget.y,
         dt,
-        4.5
+        isDesperate ? adaptiveResponsiveness * 0.6 : 4.5
       );
     }
 
@@ -410,18 +459,31 @@ export class PlantController {
     canvasHeight: number,
     predictCirclePosition: (circle: Circle, time: number) => Vector2D
   ): number {
+    const cfg = this.config;
     const tipPos = tentacle.segments[tentacle.segments.length - 1].position;
-    const maxReach = this.config.segmentLength * this.config.segmentsPerTentacle;
+    const maxReach = cfg.segmentLength * cfg.segmentsPerTentacle;
+    const speed = Math.abs(circle.velocity.x);
+
+    // BLACK triage: if the orb will escape before any tentacle can reach it,
+    // don't waste motion chasing something already lost.
+    const etaToEscape = speed > 1
+      ? (circle.position.x - PlantController.ESCAPE_X) / speed
+      : Infinity;
+
+    if (etaToEscape < cfg.triageBlackMargin) {
+      const reachSpeed = 340 + plant.learning.aggression * 120;
+      const timeToReach = distance(tipPos, circle.position) / reachSpeed;
+      if (timeToReach > etaToEscape) {
+        return PlantController.BLACK_TRIAGE_SCORE;
+      }
+    }
+
     const urgency = clamp(
       1 - (circle.position.x - plant.basePosition.x) / Math.max(120, canvasWidth - plant.basePosition.x),
       0,
       1
     );
-    const speedThreat = clamp(
-      Math.abs(circle.velocity.x) / this.config.maxCircleSpeed,
-      0,
-      1
-    );
+    const speedThreat = clamp(speed / cfg.maxCircleSpeed, 0, 1);
     const etaToBase = Math.max(
       0.05,
       (circle.position.x - plant.basePosition.x) /
@@ -448,10 +510,16 @@ export class PlantController {
       1 -
       clamp(Math.abs(predicted.y - circle.position.y) / 140, 0, 1);
 
+    // RED triage: imminent threats get a massive urgency multiplier.
+    const isRed = etaToEscape < cfg.triageRedETA;
+    const urgencyMult = isRed
+      ? 4.2
+      : (plant.mode === "defensive" || plant.mode === "desperate" ? 3.4 : 2.4);
+
     let score =
-      urgency * (plant.mode === "defensive" ? 3.4 : 2.4) +
+      urgency * urgencyMult +
       (1 / (1 + etaToBase)) * 1.6 +
-      reachScore * (plant.mode === "hunting" ? 2.8 : 1.8) +
+      reachScore * (plant.mode === "hunting" || plant.mode === "desperate" ? 2.8 : 1.8) +
       speedThreat * 1.3 +
       trajectoryStability * 0.6 -
       lanePenalty * plant.learning.coordination * 1.1;
@@ -461,7 +529,9 @@ export class PlantController {
     }
 
     if (circle.targeted && circle.id !== tentacle.targetId) {
-      score -= 1.25;
+      // In desperation, overlap penalty is reduced — better two tentacles
+      // on a real threat than one tentacle on nothing.
+      score -= plant.mode === "desperate" ? 0.5 : 1.25;
     }
 
     if (plant.mode === "idle") {
@@ -600,5 +670,129 @@ export class PlantController {
   getTip(tentacle: PlantTentacle): { position: Vector2D; angle: number } {
     const last = tentacle.segments[tentacle.segments.length - 1];
     return { position: last.position, angle: last.angle };
+  }
+
+  // ─── Survival Intelligence Methods ──────────────────────────────────────
+
+  /** Pre-allocate the threat map structure once — reused every frame. */
+  private createThreatMap(): ThreatMap {
+    return {
+      zones: [
+        { count: 0, fastestSpeed: 0, lowestETA: Infinity },
+        { count: 0, fastestSpeed: 0, lowestETA: Infinity },
+        { count: 0, fastestSpeed: 0, lowestETA: Infinity },
+        { count: 0, fastestSpeed: 0, lowestETA: Infinity },
+      ],
+      globalMostDangerous: -1,
+      totalActive: 0,
+      averageSpeed: 0,
+    };
+  }
+
+  /**
+   * Rebuild spatial awareness from live orb positions.
+   * Zones: [far, mid, near, critical] based on horizontal position.
+   * This gives the organism a "peripheral vision" of the entire field
+   * rather than tunnel-visioning on individual targets.
+   */
+  private buildThreatMap(
+    plant: PlantState,
+    circles: Circle[],
+    canvasWidth: number
+  ): void {
+    const map = plant.threatMap;
+
+    // Reset without re-allocation.
+    for (let z = 0; z < 4; z++) {
+      map.zones[z].count = 0;
+      map.zones[z].fastestSpeed = 0;
+      map.zones[z].lowestETA = Infinity;
+    }
+    map.globalMostDangerous = -1;
+    map.totalActive = 0;
+    map.averageSpeed = 0;
+
+    let speedSum = 0;
+    let lowestGlobalETA = Infinity;
+
+    for (let i = 0; i < circles.length; i++) {
+      const c = circles[i];
+      if (c.consumed) continue;
+
+      map.totalActive++;
+      const speed = Math.abs(c.velocity.x);
+      speedSum += speed;
+
+      // Classify into horizontal zone.
+      const xRatio = c.position.x / Math.max(canvasWidth, 1);
+      const zoneIdx = xRatio >= 0.6 ? 0 : xRatio >= 0.35 ? 1 : xRatio >= 0.15 ? 2 : 3;
+      const zone = map.zones[zoneIdx];
+
+      zone.count++;
+      if (speed > zone.fastestSpeed) zone.fastestSpeed = speed;
+
+      const eta = speed > 1
+        ? (c.position.x - PlantController.ESCAPE_X) / speed
+        : Infinity;
+      if (eta < zone.lowestETA) zone.lowestETA = eta;
+      if (eta < lowestGlobalETA) {
+        lowestGlobalETA = eta;
+        map.globalMostDangerous = c.id;
+      }
+    }
+
+    map.averageSpeed = map.totalActive > 0 ? speedSum / map.totalActive : 0;
+  }
+
+  /**
+   * During desperation, idle tentacles don't sway — they hold extended
+   * patrol positions covering maximum vertical range, ready to snap
+   * onto the next threat the moment it appears.
+   */
+  private getPatrolTarget(
+    tentacleIndex: number,
+    plant: PlantState,
+    canvasHeight: number
+  ): Vector2D {
+    const cfg = this.config;
+    const maxReach = cfg.segmentLength * cfg.segmentsPerTentacle;
+    const patrolReach = maxReach * 0.85;
+    const laneY = this.getLaneY(tentacleIndex, plant.tentacles.length, canvasHeight);
+    const dx = patrolReach * 0.7;
+    const dy = laneY - plant.basePosition.y;
+
+    return {
+      x: plant.basePosition.x + dx,
+      y: plant.basePosition.y + dy,
+    };
+  }
+
+  /**
+   * Post-capture momentum: update learning state and immediately seek a new
+   * target so the tentacle never wastes time drifting back to idle.
+   * Called by SimulationEngine after collision processing.
+   */
+  onCapture(
+    plant: PlantState,
+    tentacleIndex: number,
+    circles: Circle[],
+    canvasWidth: number,
+    canvasHeight: number,
+    predictCirclePosition: (circle: Circle, time: number) => Vector2D
+  ): void {
+    plant.learning.captureCount++;
+
+    const tentacle = plant.tentacles[tentacleIndex];
+
+    // Don't celebrate — immediately look for the next threat.
+    this.assignTarget(
+      tentacle,
+      tentacleIndex,
+      plant,
+      circles,
+      canvasWidth,
+      canvasHeight,
+      predictCirclePosition
+    );
   }
 }

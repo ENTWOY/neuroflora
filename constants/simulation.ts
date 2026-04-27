@@ -53,6 +53,13 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   backgroundGradientOuter: "#020a0f",
   particleGlowBlur: 0,       // Disabled — shadowBlur removed from particles
   useAdditiveParticles: false, // Disabled — 'lighter' composite removed
+
+  // ─── Survival Intelligence ────────────────────────────────────────────
+  captureRegenAmount: 1.5,     // Small reward per capture — competence buys time
+  regenIntegrityCap: 80,       // Can never fully heal — early mistakes leave scars
+  desperationThreshold: 20,    // Below this integrity, the organism enters last-stand
+  triageRedETA: 0.5,           // Seconds to escape that trigger critical priority
+  triageBlackMargin: 0.2,      // Seconds below which an unreachable orb is abandoned
 };
 
 export const MOBILE_CONFIG_OVERRIDES: Partial<SimulationConfig> = {
