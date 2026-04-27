@@ -570,6 +570,73 @@ export class SimulationEngine {
     ctx.textAlign = "right";
     ctx.fillText(`${integrity}`, w - 16, 24);
     ctx.restore();
+
+    // ─── Status labels: top-left, subtle ─────────────────────────────
+    this.renderStatusLabels(ctx);
+  }
+
+  private renderStatusLabels(ctx: CanvasRenderingContext2D): void {
+    const plant = this.state.plant;
+    const labels: { text: string; alpha: number }[] = [];
+
+    // Metabolic state
+    const metaNames: Record<string, string> = {
+      meditative: "MEDITATIVE",
+      hyperfixation: "HYPER-FIXATION",
+      entropy: "ENTROPY",
+    };
+    if (plant.metabolicTransition > 0.1) {
+      labels.push({
+        text: metaNames[plant.metabolicState] ?? plant.metabolicState,
+        alpha: plant.metabolicTransition * 0.45,
+      });
+    }
+
+    // Anomalous event
+    const eventNames: Record<string, string> = {
+      whirlpool: "WHIRLPOOL",
+      basePulse: "BASE PULSE",
+      strobe: "STROBE",
+    };
+    if (plant.anomalousEvent !== null) {
+      labels.push({
+        text: eventNames[plant.anomalousEvent] ?? plant.anomalousEvent,
+        alpha: 0.55,
+      });
+    }
+
+    // Psychological expressions (per-tentacle, but show globally if any)
+    const hasMourning = plant.tentacles.some(t => t.mourningTimer > 0);
+    const hasCuriosity = plant.tentacles.some(t => t.curiosityTimer > 0);
+    const hasShiver = plant.tentacles.some(t => t.shiverIntensity > 0.1);
+    if (hasMourning) labels.push({ text: "MOURNING", alpha: 0.45 });
+    if (hasCuriosity) labels.push({ text: "CURIOSITY", alpha: 0.4 });
+    if (hasShiver) labels.push({ text: "SHIVER", alpha: 0.35 });
+
+    // Hyperfixation hue indicator
+    if (plant.hyperfixationHue !== null && plant.metabolicState === "hyperfixation") {
+      labels.push({
+        text: `FIx ${plant.hyperfixationHue}°`,
+        alpha: plant.metabolicTransition * 0.35,
+      });
+    }
+
+    if (labels.length === 0) return;
+
+    ctx.save();
+    ctx.font = "10px 'Geist Mono', monospace";
+    ctx.textAlign = "left";
+
+    const x = 16;
+    let y = 24;
+
+    for (const label of labels) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${label.alpha})`;
+      ctx.fillText(label.text, x, y);
+      y += 16;
+    }
+
+    ctx.restore();
   }
 
   private renderCollapseOverlay(
