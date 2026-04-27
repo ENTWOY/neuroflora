@@ -3,7 +3,7 @@ import { SimulationConfig } from "@/types/simulation";
 export const DEFAULT_CONFIG: SimulationConfig = {
   // ─── Canvas ─────────────────────────────────────────────────────────────
   backgroundColor: "#040d12",
-  glowIntensity: 20,
+  glowIntensity: 0, // Disabled — shadowBlur removed from render pipeline
 
   // ─── Plant ──────────────────────────────────────────────────────────────
   plantBaseXRatio: 0.08,
@@ -28,7 +28,7 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   oscillationAmplitudeMax: 100,
   oscillationFrequencyMin: 1.0,
   oscillationFrequencyMax: 3.5,
-  maxTrailLength: 8,
+  maxTrailLength: 5, // Reduced from 8 — lighter per-frame draw load
   circleHues: [330, 270, 45, 15, 190], // pink, violet, amber, coral, cyan
 
   // ─── Particles ──────────────────────────────────────────────────────────
@@ -47,21 +47,18 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   maxCircleSpeed: 450,
 
   // ─── Rendering ──────────────────────────────────────────────────────────
-  trailAlpha: 0.3,
-  plantGlowColor: "rgba(0, 255, 136, 0.6)",
+  trailAlpha: 0.28,
+  plantGlowColor: "rgba(0, 255, 136, 0.6)", // kept for damage flash reference
   backgroundGradientInner: "#0a1f2b",
   backgroundGradientOuter: "#020a0f",
-  particleGlowBlur: 10,
-  useAdditiveParticles: true,
+  particleGlowBlur: 0,       // Disabled — shadowBlur removed from particles
+  useAdditiveParticles: false, // Disabled — 'lighter' composite removed
 };
 
 export const MOBILE_CONFIG_OVERRIDES: Partial<SimulationConfig> = {
-  glowIntensity: 12,
-  maxTrailLength: 5,
-  particlesPerBurst: 8,
-  maxParticles: 160,
-  particleLifeMax: 0.55,
-  trailAlpha: 0.22,
-  particleGlowBlur: 4,
-  useAdditiveParticles: false,
+  maxTrailLength: 3,
+  particlesPerBurst: 6,
+  maxParticles: 120,
+  particleLifeMax: 0.5,
+  trailAlpha: 0.18,
 };

@@ -260,8 +260,9 @@ export class SimulationEngine {
         ctx.lineTo(circle.trail[i].x, circle.trail[i].y);
       }
       ctx.lineTo(circle.position.x, circle.position.y);
-      ctx.strokeStyle = hsla(circle.hue, 100, 60, this.config.trailAlpha);
-      ctx.lineWidth = circle.radius * 0.8;
+      ctx.strokeStyle = hsla(circle.hue, 90, 55, this.config.trailAlpha);
+      // Thinner trail — less per-frame fill area
+      ctx.lineWidth = circle.radius * 0.45;
       ctx.lineCap = "round";
       ctx.stroke();
     }
@@ -272,7 +273,7 @@ export class SimulationEngine {
     circles: Circle[]
   ): void {
     for (const circle of circles) {
-      // Outer glow
+      // Flat saturated body — no shadowBlur
       ctx.beginPath();
       ctx.arc(
         circle.position.x,
@@ -281,22 +282,19 @@ export class SimulationEngine {
         0,
         Math.PI * 2
       );
-      ctx.fillStyle = hsla(circle.hue, 100, 60, 0.9);
-      ctx.shadowColor = hsla(circle.hue, 100, 60, 0.8);
-      ctx.shadowBlur = this.config.glowIntensity;
+      ctx.fillStyle = hsla(circle.hue, 95, 58, 0.92);
       ctx.fill();
-      ctx.shadowBlur = 0;
 
-      // Inner bright core
+      // High-contrast core dot
       ctx.beginPath();
       ctx.arc(
         circle.position.x,
         circle.position.y,
-        circle.radius * 0.45,
+        circle.radius * 0.38,
         0,
         Math.PI * 2
       );
-      ctx.fillStyle = hsla(circle.hue, 100, 85, 0.9);
+      ctx.fillStyle = hsla(circle.hue, 60, 92, 0.95);
       ctx.fill();
     }
   }
@@ -306,7 +304,7 @@ export class SimulationEngine {
     const cfg = this.config;
     const damageFlash = this.state.damageFlash;
 
-    // Render base bulb
+    // Base bulb — solid fill, no shadow
     ctx.beginPath();
     ctx.arc(
       plant.basePosition.x,
@@ -315,13 +313,10 @@ export class SimulationEngine {
       0,
       Math.PI * 2
     );
-    ctx.fillStyle = plantColor(0, 0.8);
-    ctx.shadowColor = this.config.plantGlowColor;
-    ctx.shadowBlur = 25;
+    ctx.fillStyle = plantColor(0, 0.9);
     ctx.fill();
-    ctx.shadowBlur = 0;
 
-    // Damage feedback flash on plant core.
+    // Damage feedback flash on plant core
     if (damageFlash > 0.01) {
       ctx.beginPath();
       ctx.arc(
@@ -343,7 +338,7 @@ export class SimulationEngine {
       const tentacle = plant.tentacles[ti];
       const segs = tentacle.segments;
 
-      // Draw stem as a smooth curve
+      // Draw stem as a smooth curve — no shadow
       ctx.beginPath();
       ctx.moveTo(segs[0].position.x, segs[0].position.y);
 
@@ -358,16 +353,12 @@ export class SimulationEngine {
       const lastSeg = segs[segs.length - 1];
       ctx.lineTo(lastSeg.position.x, lastSeg.position.y);
 
-      // Gradient stroke: thicker at base, thinner at tip
       const t = ti / Math.max(1, plant.tentacles.length - 1);
-      ctx.strokeStyle = plantColor(t, 0.9);
+      ctx.strokeStyle = plantColor(t, 0.92);
       ctx.lineWidth = cfg.tentacleThickness * (1 - t * 0.3);
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.shadowColor = plantColor(t, 0.5);
-      ctx.shadowBlur = 12;
       ctx.stroke();
-      ctx.shadowBlur = 0;
 
       // Draw jaw at tip
       this.renderJaw(ctx, tentacle, t);
@@ -382,19 +373,18 @@ export class SimulationEngine {
     const tip = this.plant.getTip(tentacle);
     const jawAngle = tentacle.jawOpen * 0.5; // Max opening angle
     const jawSize = this.config.jawSize;
+    const fillColor = plantColor(colorT + 0.2, 0.96);
 
     ctx.save();
     ctx.translate(tip.position.x, tip.position.y);
     ctx.rotate(tip.angle);
 
-    // Upper jaw
+    // Upper jaw — solid fill, no shadow
     ctx.beginPath();
     ctx.arc(0, 0, jawSize, -jawAngle - 0.4, -jawAngle + 0.1, false);
     ctx.lineTo(0, 0);
     ctx.closePath();
-    ctx.fillStyle = plantColor(colorT + 0.2, 0.95);
-    ctx.shadowColor = plantColor(colorT, 0.6);
-    ctx.shadowBlur = 8;
+    ctx.fillStyle = fillColor;
     ctx.fill();
 
     // Lower jaw
@@ -402,9 +392,8 @@ export class SimulationEngine {
     ctx.arc(0, 0, jawSize, jawAngle - 0.1, jawAngle + 0.4, false);
     ctx.lineTo(0, 0);
     ctx.closePath();
-    ctx.fillStyle = plantColor(colorT + 0.2, 0.95);
+    ctx.fillStyle = fillColor;
     ctx.fill();
-    ctx.shadowBlur = 0;
 
     ctx.restore();
   }
@@ -412,23 +401,15 @@ export class SimulationEngine {
   private renderParticles(ctx: CanvasRenderingContext2D): void {
     const pool = this.particles.getPool();
 
-    ctx.save();
-    if (this.config.useAdditiveParticles) {
-      ctx.globalCompositeOperation = "lighter";
-    }
-
+    // Plain alpha transparency — no 'lighter' composite, no shadowBlur
     for (const p of pool) {
       if (!p.active) continue;
       const alpha = p.life / p.maxLife;
       ctx.beginPath();
       ctx.arc(p.position.x, p.position.y, p.size * alpha, 0, Math.PI * 2);
-      ctx.fillStyle = hsla(p.hue, 100, 65, alpha * 0.8);
-      ctx.shadowColor = hsla(p.hue, 100, 60, alpha * 0.5);
-      ctx.shadowBlur = this.config.particleGlowBlur;
+      ctx.fillStyle = hsla(p.hue, 90, 68, alpha * 0.75);
       ctx.fill();
     }
-
-    ctx.restore();
   }
 
   private renderHUD(ctx: CanvasRenderingContext2D, w: number): void {

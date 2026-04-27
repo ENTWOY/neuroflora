@@ -552,11 +552,14 @@ export class PlantController {
   private solveFABRIK(tentacle: PlantTentacle, basePos: Vector2D): void {
     const segments = tentacle.segments;
     const target = tentacle.tipTarget;
-    const iterations = 3;
+    // 2 iterations — enough for organic accuracy, removes ~33% IK cost vs 3
+    const iterations = 2;
 
     for (let iter = 0; iter < iterations; iter++) {
       // Forward pass: from tip to base
-      segments[segments.length - 1].position = { ...target };
+      // Direct assignment avoids { ...target } object allocation
+      segments[segments.length - 1].position.x = target.x;
+      segments[segments.length - 1].position.y = target.y;
       for (let i = segments.length - 2; i >= 0; i--) {
         const dir = sub(segments[i].position, segments[i + 1].position);
         const dirNorm = normalize(dir);
@@ -567,7 +570,9 @@ export class PlantController {
       }
 
       // Backward pass: from base to tip
-      segments[0].position = { ...basePos };
+      // Direct assignment avoids { ...basePos } object allocation
+      segments[0].position.x = basePos.x;
+      segments[0].position.y = basePos.y;
       for (let i = 1; i < segments.length; i++) {
         const dir = sub(segments[i].position, segments[i - 1].position);
         const dirNorm = normalize(dir);
