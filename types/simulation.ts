@@ -100,6 +100,8 @@ export interface Particle {
   maxLife: number;
   hue: number;
   size: number;
+  /** Rotation angle for angular fragment rendering */
+  rotation: number;
   /** Whether this particle slot is currently active */
   active: boolean;
 }

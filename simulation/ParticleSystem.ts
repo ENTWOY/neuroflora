@@ -22,6 +22,7 @@ export class ParticleSystem {
         maxLife: 1,
         hue: 0,
         size: 2,
+        rotation: 0,
         active: false,
       });
     }
@@ -49,6 +50,7 @@ export class ParticleSystem {
       particle.maxLife = particle.life;
       particle.hue = hue + randomRange(-20, 20);
       particle.size = randomRange(cfg.particleSizeMin, cfg.particleSizeMax);
+      particle.rotation = randomRange(0, Math.PI * 2);
       particle.active = true;
     }
   }

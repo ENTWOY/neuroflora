@@ -252,18 +252,35 @@ export class SimulationEngine {
     ctx: CanvasRenderingContext2D,
     circles: Circle[]
   ): void {
+    ctx.lineCap = "round";
     for (const circle of circles) {
-      if (circle.trail.length < 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(circle.trail[0].x, circle.trail[0].y);
-      for (let i = 1; i < circle.trail.length; i++) {
-        ctx.lineTo(circle.trail[i].x, circle.trail[i].y);
+      const trail = circle.trail;
+      const len = trail.length;
+      if (len < 2) continue;
+
+      const baseAlpha = this.config.trailAlpha;
+
+      // Draw each segment with conical tapering: thin + faint at tail → thick + bright near head
+      for (let i = 0; i < len - 1; i++) {
+        const t = (i + 1) / len; // 0→1 from tail to head
+        const alpha = t * t * baseAlpha;
+        const width = circle.radius * (0.1 + t * 0.5);
+
+        ctx.beginPath();
+        ctx.moveTo(trail[i].x, trail[i].y);
+        ctx.lineTo(trail[i + 1].x, trail[i + 1].y);
+        ctx.strokeStyle = hsla(circle.hue, 70, 50 + t * 25, alpha);
+        ctx.lineWidth = width;
+        ctx.stroke();
       }
+
+      // Final segment: last trail point → current position (brightest, widest)
+      const last = trail[len - 1];
+      ctx.beginPath();
+      ctx.moveTo(last.x, last.y);
       ctx.lineTo(circle.position.x, circle.position.y);
-      ctx.strokeStyle = hsla(circle.hue, 90, 55, this.config.trailAlpha);
-      // Thinner trail — less per-frame fill area
-      ctx.lineWidth = circle.radius * 0.45;
-      ctx.lineCap = "round";
+      ctx.strokeStyle = hsla(circle.hue, 60, 72, baseAlpha * 0.95);
+      ctx.lineWidth = circle.radius * 0.6;
       ctx.stroke();
     }
   }
@@ -272,29 +289,51 @@ export class SimulationEngine {
     ctx: CanvasRenderingContext2D,
     circles: Circle[]
   ): void {
+    const TAU = Math.PI * 2;
+    const SIDES = 7;
+    const PHI = 1.618033988749; // Golden ratio for pseudo-random variation
+
     for (const circle of circles) {
-      // Flat saturated body — no shadowBlur
+      const cx = circle.position.x;
+      const cy = circle.position.y;
+      const r = circle.radius;
+      const moveAngle = Math.atan2(circle.velocity.y, circle.velocity.x);
+      const seed = circle.id * PHI;
+
+      // ── Rocky irregular body (7-sided polygon) ──────────────────────
       ctx.beginPath();
-      ctx.arc(
-        circle.position.x,
-        circle.position.y,
-        circle.radius,
-        0,
-        Math.PI * 2
-      );
-      ctx.fillStyle = hsla(circle.hue, 95, 58, 0.92);
+      for (let i = 0; i < SIDES; i++) {
+        const angle = moveAngle + (TAU * i) / SIDES;
+        const irregularity = 0.82 + 0.18 * Math.sin(seed + i * 2.3);
+        const px = cx + Math.cos(angle) * r * irregularity;
+        const py = cy + Math.sin(angle) * r * irregularity;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = hsla(circle.hue, 65, 38, 0.94);
       ctx.fill();
 
-      // High-contrast core dot
+      // ── Incandescent leading-edge crescent ──────────────────────────
+      const frontX = cx + Math.cos(moveAngle) * r * 0.2;
+      const frontY = cy + Math.sin(moveAngle) * r * 0.2;
+      ctx.beginPath();
+      ctx.arc(frontX, frontY, r * 0.62, moveAngle - 0.85, moveAngle + 0.85);
+      ctx.lineTo(frontX, frontY);
+      ctx.closePath();
+      ctx.fillStyle = hsla(circle.hue, 50, 82, 0.72);
+      ctx.fill();
+
+      // ── White-hot core shifted toward front ─────────────────────────
       ctx.beginPath();
       ctx.arc(
-        circle.position.x,
-        circle.position.y,
-        circle.radius * 0.38,
+        cx + Math.cos(moveAngle) * r * 0.15,
+        cy + Math.sin(moveAngle) * r * 0.15,
+        r * 0.28,
         0,
-        Math.PI * 2
+        TAU
       );
-      ctx.fillStyle = hsla(circle.hue, 60, 92, 0.95);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.88)";
       ctx.fill();
     }
   }
@@ -401,14 +440,22 @@ export class SimulationEngine {
   private renderParticles(ctx: CanvasRenderingContext2D): void {
     const pool = this.particles.getPool();
 
-    // Plain alpha transparency — no 'lighter' composite, no shadowBlur
+    // Angular fragment shards — drawn as short rotated lines
+    ctx.lineCap = "butt";
     for (const p of pool) {
       if (!p.active) continue;
       const alpha = p.life / p.maxLife;
+      const len = p.size * alpha * 2.5; // shard length
+      const halfLen = len * 0.5;
+      const cosR = Math.cos(p.rotation);
+      const sinR = Math.sin(p.rotation);
+
       ctx.beginPath();
-      ctx.arc(p.position.x, p.position.y, p.size * alpha, 0, Math.PI * 2);
-      ctx.fillStyle = hsla(p.hue, 90, 68, alpha * 0.75);
-      ctx.fill();
+      ctx.moveTo(p.position.x - cosR * halfLen, p.position.y - sinR * halfLen);
+      ctx.lineTo(p.position.x + cosR * halfLen, p.position.y + sinR * halfLen);
+      ctx.strokeStyle = hsla(p.hue, 70, 72, alpha * 0.8);
+      ctx.lineWidth = Math.max(1, p.size * alpha * 0.5);
+      ctx.stroke();
     }
   }
 
