@@ -18,10 +18,6 @@ interface SimulationCanvasProps {
   onCollapseComplete?: (summary: RunSummary) => void;
 }
 
-/**
- * SimulationCanvas — the main client component.
- * Creates the simulation engine outside React state and drives it via RAF.
- */
 export default function SimulationCanvas({
   isRunning,
   onCollapseComplete,
@@ -32,17 +28,16 @@ export default function SimulationCanvas({
   const isRunningRef = useRef(isRunning);
   const collapseReportedRef = useRef(false);
 
-  // Keep a ref in sync so the RAF callback always reads the latest value
+  // RAF callback closes over this once; mirror the prop into a ref so it
+  // doesn't read a stale value between renders.
   useEffect(() => {
     isRunningRef.current = isRunning;
   }, [isRunning]);
 
-  // Tick callback — runs every frame, outside React render cycle
   const onTick = useCallback((dt: number) => {
     const engine = engineRef.current;
     if (!engine) return;
 
-    // Only advance simulation when running; always render the static scene
     if (isRunningRef.current) {
       engine.update(dt);
       if (engine.isCollapseComplete() && !collapseReportedRef.current) {
@@ -55,7 +50,6 @@ export default function SimulationCanvas({
 
   const { start, stop } = useAnimationLoop(onTick);
 
-  // Initialize engine when canvas + dimensions are ready
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || dimensions.width === 0) return;
@@ -63,26 +57,33 @@ export default function SimulationCanvas({
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
+    // Plegamos viewScale dentro del dpr: el ctx.scale(dpr, dpr) interno
+    // del engine pasa de coords virtuales a píxeles reales en un solo paso.
+    const effectiveDpr = dimensions.dpr * dimensions.viewScale;
+
     if (!initializedRef.current) {
       const engine = new SimulationEngine(
         dimensions.isLowPower ? MOBILE_CONFIG_OVERRIDES : undefined
       );
-      engine.init(ctx, dimensions.width, dimensions.height, dimensions.dpr);
+      engine.init(
+        ctx,
+        dimensions.virtualWidth,
+        dimensions.virtualHeight,
+        effectiveDpr
+      );
       engineRef.current = engine;
       initializedRef.current = true;
       collapseReportedRef.current = false;
       start();
     } else {
-      // Resize existing engine
       engineRef.current?.resize(
-        dimensions.width,
-        dimensions.height,
-        dimensions.dpr
+        dimensions.virtualWidth,
+        dimensions.virtualHeight,
+        effectiveDpr
       );
     }
   }, [dimensions, canvasRef, start]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stop();

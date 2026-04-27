@@ -2,12 +2,21 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 interface CanvasSetupResult {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
-  dimensions: { width: number; height: number; dpr: number; isLowPower: boolean };
+  dimensions: {
+    width: number;
+    height: number;
+    dpr: number;
+    isLowPower: boolean;
+    viewScale: number;
+    virtualWidth: number;
+    virtualHeight: number;
+  };
 }
 
-/**
- * useCanvasSetup — handles DPR-aware canvas sizing and resize events.
- */
+// Width at which the desktop composition is tuned. Anything narrower
+// renders into a virtual canvas of this size and scales down.
+const REFERENCE_VIEWPORT_WIDTH = 960;
+
 export function useCanvasSetup(): CanvasSetupResult {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dimensions, setDimensions] = useState({
@@ -15,6 +24,9 @@ export function useCanvasSetup(): CanvasSetupResult {
     height: 0,
     dpr: 1,
     isLowPower: false,
+    viewScale: 1,
+    virtualWidth: 0,
+    virtualHeight: 0,
   });
 
   const updateSize = useCallback(() => {
@@ -30,12 +42,24 @@ export function useCanvasSetup(): CanvasSetupResult {
     const dprCap = isLowPower ? 1.5 : 2;
     const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
 
+    const viewScale = Math.min(1, width / REFERENCE_VIEWPORT_WIDTH);
+    const virtualWidth = width / viewScale;
+    const virtualHeight = height / viewScale;
+
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
 
-    setDimensions({ width, height, dpr, isLowPower });
+    setDimensions({
+      width,
+      height,
+      dpr,
+      isLowPower,
+      viewScale,
+      virtualWidth,
+      virtualHeight,
+    });
   }, []);
 
   useEffect(() => {
