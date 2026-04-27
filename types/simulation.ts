@@ -394,6 +394,8 @@ export interface SimulationState {
   particles: Particle[];
   elapsedTime: number;
   score: number;
+  /** Total orbs consumed during this run (tentacle hits + anomaly AoE). */
+  captures: number;
   integrity: number;
   damageFlash: number;
   isCollapsing: boolean;

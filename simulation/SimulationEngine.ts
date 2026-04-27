@@ -49,6 +49,7 @@ export class SimulationEngine {
       particles: this.particles.getPool(),
       elapsedTime: 0,
       score: 0,
+      captures: 0,
       integrity: SimulationEngine.INITIAL_INTEGRITY,
       damageFlash: 0,
       isCollapsing: false,
@@ -169,6 +170,7 @@ export class SimulationEngine {
 
     for (const hit of collisions) {
       this.particles.emit(hit.position, hit.circleHue);
+      s.captures += 1;
 
       if (s.integrity < this.config.regenIntegrityCap) {
         s.integrity = Math.min(
@@ -980,6 +982,7 @@ export class SimulationEngine {
     if (circle.consumed) return;
     circle.consumed = true;
     circle.targeted = false;
+    s.captures += 1;
     this.particles.emit(circle.position, circle.hue);
     if (s.integrity < this.config.regenIntegrityCap) {
       s.integrity = Math.min(
@@ -1129,6 +1132,14 @@ export class SimulationEngine {
 
   isCollapseComplete(): boolean {
     return this.state.collapseComplete;
+  }
+
+  /** Snapshot of the current run — read by the UI when the entity collapses. */
+  getRunSummary(): { duration: number; captures: number } {
+    return {
+      duration: this.state.elapsedTime,
+      captures: this.state.captures,
+    };
   }
 
   /**

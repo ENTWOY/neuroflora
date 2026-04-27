@@ -6,11 +6,16 @@ import { useAnimationLoop } from "@/hooks/useAnimationLoop";
 import { SimulationEngine } from "@/simulation/SimulationEngine";
 import { MOBILE_CONFIG_OVERRIDES } from "@/constants/simulation";
 
+export interface RunSummary {
+  duration: number;
+  captures: number;
+}
+
 interface SimulationCanvasProps {
   /** When false, the canvas renders the static scene but does not advance the simulation. */
   isRunning: boolean;
   /** Fired once the internal collapse sequence reaches full blackout. */
-  onCollapseComplete?: () => void;
+  onCollapseComplete?: (summary: RunSummary) => void;
 }
 
 /**
@@ -42,7 +47,7 @@ export default function SimulationCanvas({
       engine.update(dt);
       if (engine.isCollapseComplete() && !collapseReportedRef.current) {
         collapseReportedRef.current = true;
-        onCollapseComplete?.();
+        onCollapseComplete?.(engine.getRunSummary());
       }
     }
     engine.render();
