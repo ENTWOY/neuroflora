@@ -60,7 +60,13 @@ export type PlantBehaviorMode = "idle" | "hunting" | "defensive" | "desperate";
 
 export type MetabolicState = "meditative" | "hyperfixation" | "entropy";
 
-export type AnomalousEventType = "whirlpool" | "basePulse" | "strobe";
+export type AnomalousEventType =
+  | "whirlpool"
+  | "anger"
+  | "strobe"
+  | "supernova"
+  | "blackHole"
+  | "lightning";
 
 export type OrbAnomaly = "normal" | "flutter" | "ghost" | "magnetic";
 
@@ -172,6 +178,16 @@ export interface PlantState {
   anomalousEventTimer: number;
   /** Cooldown until next anomalous event can trigger */
   anomalousEventCooldown: number;
+  /** Anchor point for spatial events (blackHole). Null when not in use. */
+  anomalyPosition: Vector2D | null;
+  /** Expanding radius used by supernova / anger pulse rings (pixels) */
+  anomalyRadius: number;
+  /** Sub-event timer used by lightning chains and anger pulses (seconds) */
+  anomalySubTimer: number;
+  /** Visual chain segments — flat list of points, rendered as a polyline */
+  anomalyChain: Vector2D[];
+  /** Lifetime of the current chain visual, fades to 0 (seconds) */
+  anomalyChainLife: number;
   /** Global chaos factor 0→1 — weights intensity of all anomalous behaviors */
   chaosFactor: number;
   /** Phase for synchronized breathing sway across all tentacles */
@@ -330,6 +346,32 @@ export interface SimulationConfig {
   anomalousEventDuration: number;
   /** Whirlpool rotation speed (radians/second) */
   whirlpoolSpeed: number;
+  /** Whirlpool capture radius — orbs inside are pulled toward the base (pixels) */
+  whirlpoolRadius: number;
+  /** Whirlpool inward pull speed (px/s at the outer ring) */
+  whirlpoolPullSpeed: number;
+  /** Whirlpool consume radius — orbs reaching this distance from base are devoured */
+  whirlpoolCoreRadius: number;
+  /** Anger AoE max radius (pixels) — pulse expands to this size */
+  angerRadius: number;
+  /** Anger pulse interval — seconds between expanding shockwaves */
+  angerPulseInterval: number;
+  /** Supernova shell expansion speed (px/s) */
+  supernovaSpeed: number;
+  /** Supernova maximum radius before fading (pixels) */
+  supernovaMaxRadius: number;
+  /** Black hole capture radius — orbs inside this range are pulled in (pixels) */
+  blackHoleRadius: number;
+  /** Black hole pull strength (px/s² at the edge) */
+  blackHolePullStrength: number;
+  /** Black hole consume radius — orbs reaching this distance are devoured */
+  blackHoleCoreRadius: number;
+  /** Lightning chain trigger interval (seconds) */
+  lightningInterval: number;
+  /** Lightning chain max links per strike */
+  lightningChainCount: number;
+  /** Lightning maximum jump distance between orbs (pixels) */
+  lightningJumpRadius: number;
 
   // Adaptive Randomness
   /** Probability of picking a random/wrong target instead of optimal (0-1) */

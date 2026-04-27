@@ -1,4 +1,4 @@
-import { SimulationConfig, SimulationState, Circle, PlantTentacle, PlantState } from "@/types/simulation";
+import { SimulationConfig, SimulationState, Circle, PlantTentacle, PlantState, Vector2D } from "@/types/simulation";
 import { DEFAULT_CONFIG } from "@/constants/simulation";
 import { CircleSpawner } from "./CircleSpawner";
 import { PlantController } from "./PlantController";
@@ -156,6 +156,9 @@ export class SimulationEngine {
       s.escapedCircleIds
     );
 
+    // ─── Anomalous AoE / Forces ───────────────────────────────────────
+    this.processAnomalousEffects(s, dt);
+
     // ─── Collision Detection ──────────────────────────────────────────
     const collisions = this.collision.detectCollisions(
       s.plant.tentacles, s.circles
@@ -214,11 +217,7 @@ export class SimulationEngine {
     this.renderCircles(ctx, s.circles);
     this.renderPlant(ctx);
     this.renderParticles(ctx);
-
-    // ─── Strobe effect ────────────────────────────────────────────────
-    if (s.plant.anomalousEvent === "strobe") {
-      this.renderStrobeEffect(ctx, s.circles, s.plant);
-    }
+    this.renderAnomalies(ctx);
 
     this.renderHUD(ctx, w);
     this.renderCollapseOverlay(ctx, w, h);
@@ -512,30 +511,481 @@ export class SimulationEngine {
     ctx.restore();
   }
 
-  /**
-   * Strobe effect: concentric pulse rings emanating from the base.
-   */
+  private renderAnomalies(ctx: CanvasRenderingContext2D): void {
+    const plant = this.state.plant;
+    switch (plant.anomalousEvent) {
+      case "strobe":
+        this.renderStrobeEffect(ctx, plant);
+        break;
+      case "anger":
+        this.renderAngerEffect(ctx, plant);
+        break;
+      case "whirlpool":
+        this.renderWhirlpoolEffect(ctx, plant);
+        break;
+      case "supernova":
+        this.renderSupernovaEffect(ctx, plant);
+        break;
+      case "blackHole":
+        this.renderBlackHoleEffect(ctx, plant);
+        break;
+      case "lightning":
+        this.renderLightningEffect(ctx, plant);
+        break;
+    }
+  }
+
+  /** Strobe: concentric white pulse rings from the base. */
   private renderStrobeEffect(
     ctx: CanvasRenderingContext2D,
-    circles: Circle[],
     plant: PlantState
   ): void {
     const baseX = plant.basePosition.x;
     const baseY = plant.basePosition.y;
     const time = plant.time;
-    const numRings = 3;
-
-    for (let i = 0; i < numRings; i++) {
+    for (let i = 0; i < 3; i++) {
       const phase = (time * 3 + i * 0.7) % 2;
       const radius = phase * 200;
       const alpha = (1 - phase / 2) * 0.12;
       if (alpha <= 0) continue;
-
       ctx.beginPath();
       ctx.arc(baseX, baseY, radius, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
       ctx.lineWidth = 1.5;
       ctx.stroke();
+    }
+  }
+
+  /** Anger: hot red AoE with expanding shockwave rings. */
+  private renderAngerEffect(
+    ctx: CanvasRenderingContext2D,
+    plant: PlantState
+  ): void {
+    const cfg = this.config;
+    const baseX = plant.basePosition.x;
+    const baseY = plant.basePosition.y;
+    const aoeR = cfg.angerRadius;
+
+    // Steady-state crimson aura — the kill zone
+    const auraGrad = ctx.createRadialGradient(baseX, baseY, 8, baseX, baseY, aoeR);
+    auraGrad.addColorStop(0, "rgba(255, 70, 60, 0.35)");
+    auraGrad.addColorStop(0.55, "rgba(255, 60, 60, 0.12)");
+    auraGrad.addColorStop(1, "rgba(255, 40, 40, 0)");
+    ctx.fillStyle = auraGrad;
+    ctx.beginPath();
+    ctx.arc(baseX, baseY, aoeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hard outline marking the AoE boundary
+    ctx.beginPath();
+    ctx.arc(baseX, baseY, aoeR, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255, 90, 90, 0.42)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Expanding shockwave from current pulse
+    const pulseR = plant.anomalyRadius;
+    if (pulseR > 4 && pulseR <= aoeR * 1.05) {
+      const fade = 1 - pulseR / aoeR;
+      ctx.beginPath();
+      ctx.arc(baseX, baseY, pulseR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 110, 80, ${0.45 * fade})`;
+      ctx.lineWidth = 3 + fade * 4;
+      ctx.stroke();
+    }
+
+    // Tiny ember flecks to sell the menace
+    const flecks = 5;
+    for (let i = 0; i < flecks; i++) {
+      const a = plant.time * 1.4 + i * (Math.PI * 2 / flecks);
+      const r = aoeR * (0.55 + 0.4 * ((Math.sin(plant.time * 3 + i) + 1) * 0.5));
+      const x = baseX + Math.cos(a) * r;
+      const y = baseY + Math.sin(a) * r;
+      ctx.beginPath();
+      ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 180, 90, 0.55)";
+      ctx.fill();
+    }
+  }
+
+  /** Whirlpool: spiral arcs rotating around the base. */
+  private renderWhirlpoolEffect(
+    ctx: CanvasRenderingContext2D,
+    plant: PlantState
+  ): void {
+    const cfg = this.config;
+    const baseX = plant.basePosition.x;
+    const baseY = plant.basePosition.y;
+    const r = cfg.whirlpoolRadius;
+    const spinPhase = plant.time * cfg.whirlpoolSpeed;
+
+    // Capture-radius hint
+    ctx.beginPath();
+    ctx.arc(baseX, baseY, r, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(120, 200, 255, 0.16)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Spiral arms — each arm samples (theta → radius) along an Archimedean curve.
+    const arms = 4;
+    const samples = 36;
+    for (let arm = 0; arm < arms; arm++) {
+      const armPhase = spinPhase + arm * (Math.PI * 2 / arms);
+      ctx.beginPath();
+      for (let i = 0; i <= samples; i++) {
+        const t = i / samples; // 0 → 1
+        const radius = r * (0.05 + t * 0.95);
+        const theta = armPhase + t * Math.PI * 1.6;
+        const x = baseX + Math.cos(theta) * radius;
+        const y = baseY + Math.sin(theta) * radius;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = `rgba(140, 220, 255, ${0.25})`;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    }
+
+    // Hot core
+    const coreGrad = ctx.createRadialGradient(baseX, baseY, 0, baseX, baseY, cfg.whirlpoolCoreRadius * 2);
+    coreGrad.addColorStop(0, "rgba(220, 240, 255, 0.7)");
+    coreGrad.addColorStop(1, "rgba(120, 180, 255, 0)");
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(baseX, baseY, cfg.whirlpoolCoreRadius * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /** Supernova: bright expanding shell. */
+  private renderSupernovaEffect(
+    ctx: CanvasRenderingContext2D,
+    plant: PlantState
+  ): void {
+    const cfg = this.config;
+    const baseX = plant.basePosition.x;
+    const baseY = plant.basePosition.y;
+    const r = plant.anomalyRadius;
+    if (r <= 1) return;
+
+    const fade = 1 - Math.min(1, r / cfg.supernovaMaxRadius);
+
+    // Outer thin ring
+    ctx.beginPath();
+    ctx.arc(baseX, baseY, r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 240, 200, ${0.85 * fade})`;
+    ctx.lineWidth = 2 + fade * 3;
+    ctx.stroke();
+
+    // Inner glow band
+    ctx.beginPath();
+    ctx.arc(baseX, baseY, Math.max(1, r - 22), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 200, 120, ${0.35 * fade})`;
+    ctx.lineWidth = 18;
+    ctx.stroke();
+
+    // Soft halo
+    const halo = ctx.createRadialGradient(baseX, baseY, Math.max(0, r - 60), baseX, baseY, r + 30);
+    halo.addColorStop(0, `rgba(255, 230, 170, 0)`);
+    halo.addColorStop(0.7, `rgba(255, 230, 170, ${0.18 * fade})`);
+    halo.addColorStop(1, `rgba(255, 230, 170, 0)`);
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(baseX, baseY, r + 30, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /** Black hole: dark singularity with rotating accretion disk. */
+  private renderBlackHoleEffect(
+    ctx: CanvasRenderingContext2D,
+    plant: PlantState
+  ): void {
+    const cfg = this.config;
+    if (!plant.anomalyPosition) return;
+    const cx = plant.anomalyPosition.x;
+    const cy = plant.anomalyPosition.y;
+    const r = cfg.blackHoleRadius;
+
+    // Pull-radius haze (inverse — gets brighter near center)
+    const haze = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    haze.addColorStop(0, "rgba(180, 120, 220, 0.45)");
+    haze.addColorStop(0.45, "rgba(80, 50, 120, 0.18)");
+    haze.addColorStop(1, "rgba(20, 10, 30, 0)");
+    ctx.fillStyle = haze;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Accretion disk — three rotating ellipses
+    const spin = plant.time * 1.6;
+    for (let i = 0; i < 3; i++) {
+      const ringR = cfg.blackHoleCoreRadius + 14 + i * 14;
+      const phase = spin + i * 0.8;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(phase);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, ringR, ringR * 0.35, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(220, 170, 255, ${0.45 - i * 0.1})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Event horizon — pure black disk
+    ctx.beginPath();
+    ctx.arc(cx, cy, cfg.blackHoleCoreRadius, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(5, 0, 12, 0.95)";
+    ctx.fill();
+
+    // Thin bright rim
+    ctx.beginPath();
+    ctx.arc(cx, cy, cfg.blackHoleCoreRadius + 1, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(220, 180, 255, 0.7)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  /** Lightning: jagged polyline visiting each chained orb position. */
+  private renderLightningEffect(
+    ctx: CanvasRenderingContext2D,
+    plant: PlantState
+  ): void {
+    if (plant.anomalyChain.length < 2 || plant.anomalyChainLife <= 0) return;
+    const fade = Math.min(1, plant.anomalyChainLife / 0.35);
+    const chain = plant.anomalyChain;
+
+    const drawBolt = (alpha: number, width: number, jitter: number) => {
+      ctx.beginPath();
+      ctx.moveTo(chain[0].x, chain[0].y);
+      for (let i = 1; i < chain.length; i++) {
+        const a = chain[i - 1];
+        const b = chain[i];
+        const segments = 6;
+        for (let s = 1; s <= segments; s++) {
+          const t = s / segments;
+          const x = a.x + (b.x - a.x) * t + (Math.random() - 0.5) * jitter;
+          const y = a.y + (b.y - a.y) * t + (Math.random() - 0.5) * jitter;
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.strokeStyle = `rgba(200, 230, 255, ${alpha * fade})`;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    };
+
+    drawBolt(0.18, 6, 9);  // outer halo
+    drawBolt(0.55, 2.4, 5); // mid bolt
+    drawBolt(1.0, 1.2, 2);  // bright core
+
+    // Glow nodes at each junction
+    for (const p of chain) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4 + 6 * fade, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(220, 240, 255, ${0.4 * fade})`;
+      ctx.fill();
+    }
+  }
+
+  /** Apply AoE damage and gravitational forces from the active anomaly. */
+  private processAnomalousEffects(s: SimulationState, dt: number): void {
+    const cfg = this.config;
+    const plant = s.plant;
+    if (plant.anomalousEvent === null) return;
+
+    switch (plant.anomalousEvent) {
+      case "anger":
+        this.applyAngerAoE(s, dt);
+        break;
+      case "whirlpool":
+        this.applyWhirlpoolForce(s, dt);
+        break;
+      case "supernova":
+        this.applySupernovaShell(s);
+        break;
+      case "blackHole":
+        this.applyBlackHoleForce(s, dt);
+        break;
+      case "lightning":
+        this.applyLightningStrike(s, dt);
+        break;
+    }
+
+    // Cap supernova radius so it doesn't grow forever
+    if (plant.anomalousEvent === "supernova" && plant.anomalyRadius > cfg.supernovaMaxRadius) {
+      plant.anomalyRadius = cfg.supernovaMaxRadius;
+    }
+  }
+
+  private applyAngerAoE(s: SimulationState, dt: number): void {
+    const cfg = this.config;
+    const plant = s.plant;
+    const baseX = plant.basePosition.x;
+    const baseY = plant.basePosition.y;
+
+    // Pulse cycle: when sub-timer expires, reset the visible shockwave
+    plant.anomalySubTimer -= dt;
+    if (plant.anomalySubTimer <= 0) {
+      plant.anomalySubTimer = cfg.angerPulseInterval;
+      plant.anomalyRadius = 0;
+    }
+    plant.anomalyRadius += (cfg.angerRadius / cfg.angerPulseInterval) * dt;
+
+    const r2 = cfg.angerRadius * cfg.angerRadius;
+    for (const c of s.circles) {
+      if (c.consumed) continue;
+      const dx = c.position.x - baseX;
+      const dy = c.position.y - baseY;
+      if (dx * dx + dy * dy < r2) {
+        this.consumeOrb(s, c);
+      }
+    }
+  }
+
+  private applyWhirlpoolForce(s: SimulationState, dt: number): void {
+    const cfg = this.config;
+    const plant = s.plant;
+    const baseX = plant.basePosition.x;
+    const baseY = plant.basePosition.y;
+    const r = cfg.whirlpoolRadius;
+    const r2 = r * r;
+    const core2 = cfg.whirlpoolCoreRadius * cfg.whirlpoolCoreRadius;
+
+    for (const c of s.circles) {
+      if (c.consumed) continue;
+      const dx = c.position.x - baseX;
+      const dy = c.position.y - baseY;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+
+      if (d2 < core2) {
+        this.consumeOrb(s, c);
+        continue;
+      }
+
+      const d = Math.sqrt(d2) || 1;
+      const nx = dx / d;
+      const ny = dy / d;
+      // Tangent (90° rotation) — counter-clockwise
+      const tx = -ny;
+      const ty = nx;
+      const proximity = 1 - d / r;
+      const inward = cfg.whirlpoolPullSpeed * (0.4 + proximity);
+      const tangent = cfg.whirlpoolPullSpeed * (0.5 + proximity * 0.7);
+
+      c.position.x += (tx * tangent - nx * inward) * dt;
+      c.position.y += (ty * tangent - ny * inward) * dt;
+      c.baseY = c.position.y;
+      // Damp horizontal escape velocity so the vortex actually holds them
+      c.velocity.x *= 1 - Math.min(0.9, dt * 4);
+    }
+  }
+
+  private applySupernovaShell(s: SimulationState): void {
+    const plant = s.plant;
+    const baseX = plant.basePosition.x;
+    const baseY = plant.basePosition.y;
+    const outer = plant.anomalyRadius;
+    const inner = Math.max(0, outer - 40);
+    const inner2 = inner * inner;
+    const outer2 = outer * outer;
+    for (const c of s.circles) {
+      if (c.consumed) continue;
+      const dx = c.position.x - baseX;
+      const dy = c.position.y - baseY;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= inner2 && d2 <= outer2) {
+        this.consumeOrb(s, c);
+      }
+    }
+  }
+
+  private applyBlackHoleForce(s: SimulationState, dt: number): void {
+    const cfg = this.config;
+    const plant = s.plant;
+    if (!plant.anomalyPosition) return;
+    const cx = plant.anomalyPosition.x;
+    const cy = plant.anomalyPosition.y;
+    const r = cfg.blackHoleRadius;
+    const r2 = r * r;
+    const core2 = cfg.blackHoleCoreRadius * cfg.blackHoleCoreRadius;
+
+    for (const c of s.circles) {
+      if (c.consumed) continue;
+      const dx = c.position.x - cx;
+      const dy = c.position.y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      if (d2 < core2) {
+        this.consumeOrb(s, c);
+        continue;
+      }
+      const d = Math.sqrt(d2) || 1;
+      const proximity = 1 - d / r;
+      const pull = cfg.blackHolePullStrength * (0.3 + proximity * proximity);
+      const nx = dx / d;
+      const ny = dy / d;
+      c.position.x -= nx * pull * dt;
+      c.position.y -= ny * pull * dt;
+      c.baseY = c.position.y;
+    }
+  }
+
+  private applyLightningStrike(s: SimulationState, dt: number): void {
+    const cfg = this.config;
+    const plant = s.plant;
+    plant.anomalySubTimer -= dt;
+    if (plant.anomalySubTimer > 0) return;
+    plant.anomalySubTimer = cfg.lightningInterval;
+
+    const live: Circle[] = [];
+    for (const c of s.circles) {
+      if (!c.consumed) live.push(c);
+    }
+    if (live.length === 0) return;
+
+    const start = live[Math.floor(Math.random() * live.length)];
+    const used = new Set<number>([start.id]);
+    const chain: Circle[] = [start];
+    const maxJump2 = cfg.lightningJumpRadius * cfg.lightningJumpRadius;
+    let current = start;
+    for (let step = 1; step < cfg.lightningChainCount; step++) {
+      let best: Circle | null = null;
+      let bestD2 = Infinity;
+      for (const c of live) {
+        if (used.has(c.id)) continue;
+        const dx = c.position.x - current.position.x;
+        const dy = c.position.y - current.position.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD2 && d2 < maxJump2) {
+          bestD2 = d2;
+          best = c;
+        }
+      }
+      if (!best) break;
+      chain.push(best);
+      used.add(best.id);
+      current = best;
+    }
+
+    const visual: Vector2D[] = [{ x: plant.basePosition.x, y: plant.basePosition.y }];
+    for (const c of chain) {
+      visual.push({ x: c.position.x, y: c.position.y });
+      this.consumeOrb(s, c);
+    }
+    plant.anomalyChain = visual;
+    plant.anomalyChainLife = 0.35;
+  }
+
+  private consumeOrb(s: SimulationState, circle: Circle): void {
+    if (circle.consumed) return;
+    circle.consumed = true;
+    circle.targeted = false;
+    this.particles.emit(circle.position, circle.hue);
+    if (s.integrity < this.config.regenIntegrityCap) {
+      s.integrity = Math.min(
+        s.integrity + this.config.captureRegenAmount * 0.5,
+        this.config.regenIntegrityCap
+      );
     }
   }
 
@@ -595,8 +1045,11 @@ export class SimulationEngine {
     // Anomalous event
     const eventNames: Record<string, string> = {
       whirlpool: "WHIRLPOOL",
-      basePulse: "BASE PULSE",
+      anger: "ANGER",
       strobe: "STROBE",
+      supernova: "SUPERNOVA",
+      blackHole: "BLACK HOLE",
+      lightning: "LIGHTNING",
     };
     if (plant.anomalousEvent !== null) {
       labels.push({
@@ -681,7 +1134,7 @@ export class SimulationEngine {
   /**
    * Neural Pulse: Calculated sacrifice.
    */
-  private processNeuralPulses(s: any): void {
+  private processNeuralPulses(s: SimulationState): void {
     const cfg = this.config;
     const maxReachWithSurge = cfg.segmentLength * cfg.segmentsPerTentacle * cfg.surgeReachMultiplier;
 

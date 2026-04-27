@@ -100,9 +100,22 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   shiverSpeedThreshold: 320,       // Speed threshold to trigger shiver
 
   // Stochastic Mutations
-  anomalousEventCooldown: 45,      // Seconds between anomalous events
-  anomalousEventDuration: 5,       // Duration of each anomalous event (seconds)
-  whirlpoolSpeed: 2.5,             // Rotation speed for whirlpool (radians/second)
+  anomalousEventCooldown: 28,      // Seconds between anomalous events (more frequent variety)
+  anomalousEventDuration: 6,       // Duration of each anomalous event (seconds)
+  whirlpoolSpeed: 2.2,             // Rotation speed for whirlpool (radians/second)
+  whirlpoolRadius: 320,            // Capture radius — orbs inside are sucked in
+  whirlpoolPullSpeed: 280,         // Inward pull speed (px/s) at outer ring
+  whirlpoolCoreRadius: 30,         // Inner core — orbs that reach it are consumed
+  angerRadius: 220,                // AoE radius around the base
+  angerPulseInterval: 0.55,        // Seconds between expanding shockwaves
+  supernovaSpeed: 540,             // Expansion speed of the supernova shell
+  supernovaMaxRadius: 1100,        // Cap on shell radius
+  blackHoleRadius: 280,            // Pull radius of the black hole
+  blackHolePullStrength: 520,      // Strength of inward pull at edge
+  blackHoleCoreRadius: 26,         // Consume radius at the singularity
+  lightningInterval: 0.45,         // Seconds between lightning strikes
+  lightningChainCount: 4,          // Max links per strike
+  lightningJumpRadius: 280,        // Max jump distance between orbs
 
   // Adaptive Randomness
   randomTargetChance: 0.15,        // 15% chance to pick a non-optimal target

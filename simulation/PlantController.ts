@@ -126,6 +126,11 @@ export class PlantController {
       anomalousEvent: null,
       anomalousEventTimer: 0,
       anomalousEventCooldown: cfg.anomalousEventCooldown * 0.5,
+      anomalyPosition: null,
+      anomalyRadius: 0,
+      anomalySubTimer: 0,
+      anomalyChain: [],
+      anomalyChainLife: 0,
       chaosFactor: 0.3,
       breathPhase: 0,
     };
@@ -153,7 +158,7 @@ export class PlantController {
     this.buildThreatMap(plant, circles, canvasWidth);
     this.updateSomaticPosition(plant, circles, dt, canvasHeight);
     this.updateMetabolicState(plant, circles, dt);
-    this.updateAnomalousEvent(plant, dt);
+    this.updateAnomalousEvent(plant, dt, canvasWidth, canvasHeight);
     this.updateSynchronizedShiver(plant, circles, dt);
     this.processMourningReflex(plant, escapedCircleIds);
     this.updateBehaviorState(plant, circles, dt, canvasWidth, integrity);
@@ -241,32 +246,87 @@ export class PlantController {
 
   // ─── Anomalous Events (Stochastic Mutations) ────────────────────────────
 
-  private updateAnomalousEvent(plant: PlantState, dt: number): void {
+  private updateAnomalousEvent(
+    plant: PlantState,
+    dt: number,
+    canvasWidth: number,
+    canvasHeight: number
+  ): void {
     if (plant.anomalousEvent !== null) {
       plant.anomalousEventTimer -= dt;
+      plant.anomalySubTimer -= dt;
+      plant.anomalyChainLife = Math.max(0, plant.anomalyChainLife - dt);
+
+      if (plant.anomalousEvent === "supernova") {
+        plant.anomalyRadius += this.config.supernovaSpeed * dt;
+      }
+
       if (plant.anomalousEventTimer <= 0) {
         plant.anomalousEvent = null;
+        plant.anomalyPosition = null;
+        plant.anomalyRadius = 0;
+        plant.anomalySubTimer = 0;
+        plant.anomalyChain = [];
+        plant.anomalyChainLife = 0;
       }
       return;
     }
 
     plant.anomalousEventCooldown -= dt;
     if (plant.anomalousEventCooldown <= 0) {
-      const events: AnomalousEventType[] = ["whirlpool", "basePulse", "strobe"];
-      plant.anomalousEvent = randomPick(events);
+      const events: AnomalousEventType[] = [
+        "whirlpool",
+        "anger",
+        "strobe",
+        "supernova",
+        "blackHole",
+        "lightning",
+      ];
+      const next = randomPick(events);
+      plant.anomalousEvent = next;
       plant.anomalousEventTimer = this.config.anomalousEventDuration;
       plant.anomalousEventCooldown = this.config.anomalousEventCooldown;
+      plant.anomalySubTimer = 0;
+      plant.anomalyRadius = 0;
+      plant.anomalyChain = [];
+      plant.anomalyChainLife = 0;
+
+      if (next === "blackHole") {
+        // Place at a random screen point ahead of the plant so it actually
+        // intercepts incoming orbs rather than spawning behind them.
+        const minX = Math.max(plant.basePosition.x + 120, canvasWidth * 0.35);
+        const maxX = canvasWidth - 80;
+        plant.anomalyPosition = {
+          x: randomRange(minX, Math.max(minX + 1, maxX)),
+          y: randomRange(canvasHeight * 0.2, canvasHeight * 0.8),
+        };
+      } else {
+        plant.anomalyPosition = null;
+      }
     }
   }
 
-  private getWhirlpoolOffset(tentacleIndex: number, plant: PlantState): Vector2D {
+  /**
+   * Whirlpool tentacle layout — tentacles fan out at near-max reach and rotate
+   * slowly, forming a vortex's spokes. They no longer bunch at the core.
+   */
+  private getWhirlpoolTipTarget(
+    tentacleIndex: number,
+    plant: PlantState
+  ): Vector2D {
     const cfg = this.config;
-    const angle = plant.time * cfg.whirlpoolSpeed + tentacleIndex * (Math.PI * 2 / cfg.tentacleCount);
-    const radius = 80;
-    return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+    const maxReach = cfg.segmentLength * cfg.segmentsPerTentacle;
+    const reach = maxReach * 0.85;
+    const angle =
+      plant.time * cfg.whirlpoolSpeed +
+      (tentacleIndex / Math.max(1, cfg.tentacleCount)) * Math.PI * 2;
+    return {
+      x: plant.basePosition.x + Math.cos(angle) * reach,
+      y: plant.basePosition.y + Math.sin(angle) * reach,
+    };
   }
 
-  private getBasePulseOffset(plant: PlantState): number {
+  private getAngerOffset(plant: PlantState): number {
     return Math.sin(plant.time * 18) * 25;
   }
 
@@ -546,7 +606,7 @@ export class PlantController {
       canvasWidth, canvasHeight, predictCirclePosition
     );
 
-    let baseResponsiveness = 11 + plant.learning.aggression * 4;
+    const baseResponsiveness = 11 + plant.learning.aggression * 4;
     const adaptiveResponsiveness = baseResponsiveness + plant.learning.reactionBoost;
     const responsiveMod = 1 - meta.meditative * 0.65;
 
@@ -589,11 +649,11 @@ export class PlantController {
         desiredY += Math.cos(plant.time * 42 + tentacleIndex * 2.3) * tentacle.shiverIntensity * 4;
       }
 
-      // Anomalous event: whirlpool overrides target
+      // Anomalous event: whirlpool — tentacles lock into rotating spokes
       if (plant.anomalousEvent === "whirlpool") {
-        const whirlpool = this.getWhirlpoolOffset(tentacleIndex, plant);
-        desiredX = lerpScalar(desiredX, plant.basePosition.x + whirlpool.x, 0.7);
-        desiredY = lerpScalar(desiredY, plant.basePosition.y + whirlpool.y, 0.7);
+        const spoke = this.getWhirlpoolTipTarget(tentacleIndex, plant);
+        desiredX = lerpScalar(desiredX, spoke.x, 0.85);
+        desiredY = lerpScalar(desiredY, spoke.y, 0.85);
       }
 
       const closingDist = distance(tipPos, target.position);
@@ -614,11 +674,7 @@ export class PlantController {
       let idleTarget: Vector2D;
 
       if (plant.anomalousEvent === "whirlpool") {
-        const whirlpool = this.getWhirlpoolOffset(tentacleIndex, plant);
-        idleTarget = {
-          x: plant.basePosition.x + whirlpool.x,
-          y: plant.basePosition.y + whirlpool.y,
-        };
+        idleTarget = this.getWhirlpoolTipTarget(tentacleIndex, plant);
       } else if (isDesperate) {
         idleTarget = this.getPatrolTarget(tentacleIndex, plant, canvasHeight);
       } else {
@@ -1028,13 +1084,13 @@ export class PlantController {
     plant.anchorY += plant.baseVelocityY * dt;
     plant.anchorY = clamp(plant.anchorY, 60, canvasHeight - 60);
 
-    let basePulseOffset = 0;
-    if (plant.anomalousEvent === "basePulse") {
-      basePulseOffset = this.getBasePulseOffset(plant);
+    let angerOffset = 0;
+    if (plant.anomalousEvent === "anger") {
+      angerOffset = this.getAngerOffset(plant);
     }
 
     plant.basePosition.y =
-      plant.anchorY + layeredSine(plant.time * 0.3, 0) * 3 + basePulseOffset;
+      plant.anchorY + layeredSine(plant.time * 0.3, 0) * 3 + angerOffset;
 
     if (meta.meditative > 0.1) {
       plant.basePosition.y += Math.sin(plant.breathPhase) * 5 * meta.meditative;
