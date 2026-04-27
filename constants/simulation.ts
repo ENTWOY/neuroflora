@@ -71,6 +71,45 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   // ─── Neural Pulse ──────────────────────────────────────────────────
   neuralPulseCost: 3,            // Voluntary sacrifice (less than 5pt escape damage)
   neuralPulseETA: 0.35,          // Trigger window — orb about to escape, physically unreachable
+
+  // ─── Stochastic Sentience ────────────────────────────────────────────
+
+  // Metabolic Rhythms (2-3 minute cycles)
+  metabolicPhaseMin: 120,          // Minimum phase duration (seconds)
+  metabolicPhaseMax: 180,          // Maximum phase duration (seconds)
+  metabolicBlendSpeed: 0.4,        // Blend speed between metabolic states
+
+  // Orb Anomalies
+  flutterOrbChance: 0.12,          // 12% of orbs are flutter orbs
+  ghostOrbChance: 0.06,            // 6% of orbs are ghost orbs
+  magneticOrbChance: 0.08,         // 8% of orbs are magnetic orbs
+  flutterDodgeIntervalMin: 1.5,    // Min seconds between dodge maneuvers
+  flutterDodgeIntervalMax: 4.0,    // Max seconds between dodge maneuvers
+  flutterDodgeDistance: 80,         // Dodge distance in pixels
+  ghostCycleDuration: 3.0,         // Full fade in/out cycle (seconds)
+  ghostMinVisibility: 0.08,        // Ghost orbs fade to near-invisible
+  magneticStrength: 45,            // Magnetic pull/repel force
+  magneticRadius: 150,             // Magnetic influence radius (pixels)
+
+  // Psychological Expressions
+  mourningDuration: 1.5,           // Droop duration after an orb escapes (seconds)
+  curiosityLagDuration: 1.0,       // Inspection time before snapping (seconds)
+  curiosityFollowDistance: 10,      // Follow distance during inspection (pixels)
+  curiosityLagChance: 0.2,         // 20% chance of curiosity lag per capture
+  shiverDuration: 0.6,             // Synchronized shiver duration (seconds)
+  shiverSpeedThreshold: 320,       // Speed threshold to trigger shiver
+
+  // Stochastic Mutations
+  anomalousEventCooldown: 45,      // Seconds between anomalous events
+  anomalousEventDuration: 5,       // Duration of each anomalous event (seconds)
+  whirlpoolSpeed: 2.5,             // Rotation speed for whirlpool (radians/second)
+
+  // Adaptive Randomness
+  randomTargetChance: 0.15,        // 15% chance to pick a non-optimal target
+  speedWaveRiseDuration: 20,       // Seconds of accelerating speed
+  speedWaveCalmDuration: 10,       // Seconds of calm between waves
+  speedWaveCalmMultiplier: 0.4,    // Speed drops to 40% during calm
+  speedWaveSpikeMultiplier: 1.3,   // Speed spikes 30% above base after calm
 };
 
 export const MOBILE_CONFIG_OVERRIDES: Partial<SimulationConfig> = {

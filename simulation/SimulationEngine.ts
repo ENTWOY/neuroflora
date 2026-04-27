@@ -1,4 +1,4 @@
-import { SimulationConfig, SimulationState, Circle, PlantTentacle } from "@/types/simulation";
+import { SimulationConfig, SimulationState, Circle, PlantTentacle, PlantState } from "@/types/simulation";
 import { DEFAULT_CONFIG } from "@/constants/simulation";
 import { CircleSpawner } from "./CircleSpawner";
 import { PlantController } from "./PlantController";
@@ -38,9 +38,6 @@ export class SimulationEngine {
     this.particles = new ParticleSystem(this.config);
   }
 
-  /**
-   * Initialize the engine with a canvas context and dimensions.
-   */
   init(ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number): void {
     this.ctx = ctx;
     this.dpr = dpr;
@@ -64,21 +61,17 @@ export class SimulationEngine {
       nextCircleId: 0,
       canvasWidth: width,
       canvasHeight: height,
+      speedWavePhase: 0,
+      speedWaveMultiplier: 1,
+      escapedCircleIds: [],
     };
   }
 
-  /**
-   * Handle canvas resize.
-   */
   resize(width: number, height: number, dpr: number): void {
     this.dpr = dpr;
     this.state.canvasWidth = width;
     this.state.canvasHeight = height;
 
-    // Translate the plant by the delta so tentacle segments follow the base.
-    // Without this, FABRIK would only resync on the next update() call —
-    // and when the start overlay is shown the simulation is paused, leaving
-    // the rendered bulb visibly detached from the tentacles on large screens.
     const newBaseX = width * this.config.plantBaseXRatio;
     const newBaseY = height * 0.5;
     const dx = newBaseX - this.state.plant.basePosition.x;
@@ -97,59 +90,61 @@ export class SimulationEngine {
         tentacle.tipTarget.y += dy;
         tentacle.lastTipTarget.x += dx;
         tentacle.lastTipTarget.y += dy;
+        tentacle.vanityTarget.x += dx;
+        tentacle.vanityTarget.y += dy;
       }
     }
 
     this.backgroundGradient = this.createBackgroundGradient(width, height);
   }
 
-  /**
-   * Advance simulation by dt seconds.
-   */
   update(dt: number): void {
     const s = this.state;
     s.elapsedTime += dt;
     s.damageFlash = Math.max(0, s.damageFlash - dt * SimulationEngine.DAMAGE_FLASH_DECAY);
+    s.escapedCircleIds = [];
 
     if (s.isCollapsing) {
       s.collapseElapsed += dt;
-      s.collapseProgress = clamp(
-        s.collapseElapsed / SimulationEngine.COLLAPSE_DURATION,
-        0,
-        1
-      );
-      if (s.collapseProgress >= 1) {
-        s.collapseComplete = true;
-      }
+      s.collapseProgress = clamp(s.collapseElapsed / SimulationEngine.COLLAPSE_DURATION, 0, 1);
+      if (s.collapseProgress >= 1) s.collapseComplete = true;
       this.particles.update(dt);
       return;
     }
 
-    // ─── Difficulty Scaling ───────────────────────────────────────
-    s.currentSpawnInterval = this.spawner.getCurrentSpawnInterval(s.elapsedTime);
-    s.currentSpeedBonus = this.spawner.getCurrentSpeedBonus(s.elapsedTime);
+    // ─── Velocity Breath: speed wave system ───────────────────────────
+    const wave = this.spawner.updateSpeedWave(s.speedWavePhase, dt);
+    s.speedWavePhase = wave.phase;
+    s.speedWaveMultiplier = wave.multiplier;
 
-    // ─── Spawn Circles ────────────────────────────────────────────
-    s.timeSinceLastSpawn += dt * 1000; // convert to ms
+    // ─── Difficulty Scaling ────────────────────────────────────────────
+    s.currentSpawnInterval = this.spawner.getCurrentSpawnInterval(s.elapsedTime);
+    s.currentSpeedBonus = this.spawner.getCurrentSpeedBonus(s.elapsedTime, s.speedWaveMultiplier);
+
+    // ─── Spawn Circles ────────────────────────────────────────────────
+    s.timeSinceLastSpawn += dt * 1000;
     if (s.timeSinceLastSpawn >= s.currentSpawnInterval) {
       s.timeSinceLastSpawn = 0;
       const circle = this.spawner.spawn(
-        s.canvasWidth,
-        s.canvasHeight,
-        s.nextCircleId++,
-        s.currentSpeedBonus
+        s.canvasWidth, s.canvasHeight, s.nextCircleId++, s.currentSpeedBonus
       );
       s.circles.push(circle);
     }
 
-    // ─── Update Circles ───────────────────────────────────────────
+    // ─── Update Circles ───────────────────────────────────────────────
+    // Collect tentacle tips for magnetic influence
+    const tentacleTips = s.plant.tentacles.map(t =>
+      t.segments[t.segments.length - 1].position
+    );
+
     for (const circle of s.circles) {
       if (!circle.consumed) {
         this.spawner.updateCircle(circle, dt);
+        this.spawner.applyMagneticInfluence(circle, tentacleTips, dt);
       }
     }
 
-    // ─── Update Plant ─────────────────────────────────────────────
+    // ─── Update Plant ─────────────────────────────────────────────────
     this.plant.update(
       s.plant,
       s.circles,
@@ -157,23 +152,21 @@ export class SimulationEngine {
       s.canvasWidth,
       s.canvasHeight,
       s.integrity,
-      (circle, time) => this.spawner.predictCirclePosition(circle, time)
+      (circle, time) => this.spawner.predictCirclePosition(circle, time),
+      s.escapedCircleIds
     );
 
-    // ─── Collision Detection ──────────────────────────────────────
+    // ─── Collision Detection ──────────────────────────────────────────
     const collisions = this.collision.detectCollisions(
-      s.plant.tentacles,
-      s.circles
+      s.plant.tentacles, s.circles
     );
 
-    // ─── Process Collisions (tentacle captures only) ──────────────
     const predictor = (circle: Circle, time: number) =>
       this.spawner.predictCirclePosition(circle, time);
 
     for (const hit of collisions) {
       this.particles.emit(hit.position, hit.circleHue);
 
-      // Regeneration: competence buys time, but early scars never fully heal.
       if (s.integrity < this.config.regenIntegrityCap) {
         s.integrity = Math.min(
           s.integrity + this.config.captureRegenAmount,
@@ -181,32 +174,25 @@ export class SimulationEngine {
         );
       }
 
-      // Post-capture momentum: freed tentacle immediately seeks next target.
       this.plant.onCapture(
-        s.plant,
-        hit.tentacleIndex,
-        s.circles,
-        s.canvasWidth,
-        s.canvasHeight,
-        predictor
+        s.plant, hit.tentacleIndex, s.circles,
+        s.canvasWidth, s.canvasHeight, predictor
       );
     }
 
-    // ─── Update Particles ─────────────────────────────────────────
+    // ─── Update Particles ─────────────────────────────────────────────
     this.particles.update(dt);
 
-    // ─── Neural Pulse: calculated sacrifice for unreachable threats ──
-    // The organism detects orbs about to escape that no tentacle can
-    // physically intercept. Rather than lose 5 integrity passively, it
-    // spends 3 integrity to neutralize the orb — a conscious trade-off.
+    // ─── Neural Pulse ─────────────────────────────────────────────────
     this.processNeuralPulses(s);
 
-    // ─── Cleanup consumed/off-screen circles ──────────────────────
+    // ─── Cleanup consumed/off-screen circles ──────────────────────────
     const survivors: Circle[] = [];
     for (const circle of s.circles) {
       if (circle.consumed) continue;
       if (circle.position.x <= -50) {
         this.applyIntegrityDamage(SimulationEngine.ESCAPE_DAMAGE);
+        s.escapedCircleIds.push(circle.id);
         continue;
       }
       survivors.push(circle);
@@ -214,9 +200,6 @@ export class SimulationEngine {
     s.circles = survivors;
   }
 
-  /**
-   * Render the full scene.
-   */
   render(): void {
     const ctx = this.ctx;
     const s = this.state;
@@ -226,27 +209,19 @@ export class SimulationEngine {
     ctx.save();
     ctx.scale(this.dpr, this.dpr);
 
-    // ─── Background ───────────────────────────────────────────────
     this.renderBackground(ctx, w, h);
-
-    // ─── Circle Trails ────────────────────────────────────────────
     this.renderCircleTrails(ctx, s.circles);
-
-    // ─── Circles ──────────────────────────────────────────────────
     this.renderCircles(ctx, s.circles);
-
-    // ─── Plant ────────────────────────────────────────────────────
     this.renderPlant(ctx);
-
-    // ─── Particles ────────────────────────────────────────────────
     this.renderParticles(ctx);
 
-    // ─── HUD ──────────────────────────────────────────────────────
+    // ─── Strobe effect ────────────────────────────────────────────────
+    if (s.plant.anomalousEvent === "strobe") {
+      this.renderStrobeEffect(ctx, s.circles, s.plant);
+    }
+
     this.renderHUD(ctx, w);
-
-    // ─── Collapse Overlay ─────────────────────────────────────────
     this.renderCollapseOverlay(ctx, w, h);
-
     ctx.restore();
   }
 
@@ -263,11 +238,8 @@ export class SimulationEngine {
 
   private createBackgroundGradient(width: number, height: number): CanvasGradient {
     const gradient = this.ctx.createRadialGradient(
-      width * 0.3,
-      height * 0.5,
-      0,
-      width * 0.5,
-      height * 0.5,
+      width * 0.3, height * 0.5, 0,
+      width * 0.5, height * 0.5,
       Math.max(width, height) * 0.8
     );
     gradient.addColorStop(0, this.config.backgroundGradientInner);
@@ -281,15 +253,20 @@ export class SimulationEngine {
   ): void {
     ctx.lineCap = "round";
     for (const circle of circles) {
+      // Ghost orbs: fade trail when invisible
+      let alphaMod = 1;
+      if (circle.anomaly === "ghost") {
+        alphaMod = circle.visible ? 1 : 0.15;
+      }
+
       const trail = circle.trail;
       const len = trail.length;
       if (len < 2) continue;
 
-      const baseAlpha = this.config.trailAlpha;
+      const baseAlpha = this.config.trailAlpha * alphaMod;
 
-      // Draw each segment with conical tapering: thin + faint at tail → thick + bright near head
       for (let i = 0; i < len - 1; i++) {
-        const t = (i + 1) / len; // 0→1 from tail to head
+        const t = (i + 1) / len;
         const alpha = t * t * baseAlpha;
         const width = circle.radius * (0.1 + t * 0.5);
 
@@ -301,7 +278,6 @@ export class SimulationEngine {
         ctx.stroke();
       }
 
-      // Final segment: last trail point → current position (brightest, widest)
       const last = trail[len - 1];
       ctx.beginPath();
       ctx.moveTo(last.x, last.y);
@@ -318,16 +294,22 @@ export class SimulationEngine {
   ): void {
     const TAU = Math.PI * 2;
     const SIDES = 7;
-    const PHI = 1.618033988749; // Golden ratio for pseudo-random variation
+    const PHI = 1.618033988749;
 
     for (const circle of circles) {
+      // Ghost orbs: render with reduced opacity when fading
+      let alphaMod = 1;
+      if (circle.anomaly === "ghost") {
+        alphaMod = circle.visible ? 1 : this.config.ghostMinVisibility;
+      }
+
       const cx = circle.position.x;
       const cy = circle.position.y;
       const r = circle.radius;
       const moveAngle = Math.atan2(circle.velocity.y, circle.velocity.x);
       const seed = circle.id * PHI;
 
-      // ── Rocky irregular body (7-sided polygon) ──────────────────────
+      // Rocky irregular body
       ctx.beginPath();
       for (let i = 0; i < SIDES; i++) {
         const angle = moveAngle + (TAU * i) / SIDES;
@@ -338,30 +320,51 @@ export class SimulationEngine {
         else ctx.lineTo(px, py);
       }
       ctx.closePath();
-      ctx.fillStyle = hsla(circle.hue, 65, 38, 0.94);
+      ctx.fillStyle = hsla(circle.hue, 65, 38, 0.94 * alphaMod);
       ctx.fill();
 
-      // ── Incandescent leading-edge crescent ──────────────────────────
+      // Incandescent leading-edge crescent
       const frontX = cx + Math.cos(moveAngle) * r * 0.2;
       const frontY = cy + Math.sin(moveAngle) * r * 0.2;
       ctx.beginPath();
       ctx.arc(frontX, frontY, r * 0.62, moveAngle - 0.85, moveAngle + 0.85);
       ctx.lineTo(frontX, frontY);
       ctx.closePath();
-      ctx.fillStyle = hsla(circle.hue, 50, 82, 0.72);
+      ctx.fillStyle = hsla(circle.hue, 50, 82, 0.72 * alphaMod);
       ctx.fill();
 
-      // ── White-hot core shifted toward front ─────────────────────────
+      // White-hot core
       ctx.beginPath();
       ctx.arc(
         cx + Math.cos(moveAngle) * r * 0.15,
         cy + Math.sin(moveAngle) * r * 0.15,
-        r * 0.28,
-        0,
-        TAU
+        r * 0.28, 0, TAU
       );
-      ctx.fillStyle = "rgba(255, 255, 255, 0.88)";
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.88 * alphaMod})`;
       ctx.fill();
+
+      // ── Magnetic aura ────────────────────────────────────────────────
+      if (circle.anomaly === "magnetic") {
+        const isAttract = circle.magneticStrength < 0;
+        const auraAlpha = 0.12 * alphaMod;
+        ctx.beginPath();
+        ctx.arc(cx, cy, this.config.magneticRadius * 0.3, 0, TAU);
+        ctx.strokeStyle = isAttract
+          ? `rgba(100, 200, 255, ${auraAlpha})`
+          : `rgba(255, 100, 100, ${auraAlpha})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // ── Flutter visual: subtle vibration lines ───────────────────────
+      if (circle.anomaly === "flutter" && !isNaN(circle.flutterTargetY)) {
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.8, cy - r * 1.2);
+        ctx.lineTo(cx + r * 0.3, cy - r * 1.2);
+        ctx.strokeStyle = hsla(circle.hue, 50, 70, 0.3 * alphaMod);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     }
   }
 
@@ -370,28 +373,57 @@ export class SimulationEngine {
     const cfg = this.config;
     const damageFlash = this.state.damageFlash;
 
-    // Base bulb — solid fill, no shadow
+    // ── Strobe: modulate core brightness ───────────────────────────────
+    let coreBrightness = 0.9;
+    if (plant.anomalousEvent === "strobe" && this.state.circles.length > 0) {
+      // Find nearest orb distance to base
+      let nearestDist = Infinity;
+      for (const c of this.state.circles) {
+        if (c.consumed) continue;
+        const dx = c.position.x - plant.basePosition.x;
+        const dy = c.position.y - plant.basePosition.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < nearestDist) nearestDist = d;
+      }
+      // Pulse brightness with distance — sonar effect
+      const maxDist = cfg.segmentLength * cfg.segmentsPerTentacle * 2;
+      const proximity = 1 - clamp(nearestDist / maxDist, 0, 1);
+      coreBrightness = 0.5 + proximity * 0.5 + Math.sin(plant.time * 12) * 0.15;
+    }
+
+    // ── Metabolic visual: meditative glow ──────────────────────────────
+    let meditativeGlow = 0;
+    if (plant.metabolicState === "meditative") {
+      meditativeGlow = plant.metabolicTransition * 0.15;
+    }
+
+    // Base bulb
     ctx.beginPath();
-    ctx.arc(
-      plant.basePosition.x,
-      plant.basePosition.y,
-      18,
-      0,
-      Math.PI * 2
-    );
-    ctx.fillStyle = plantColor(0, 0.9);
+    ctx.arc(plant.basePosition.x, plant.basePosition.y, 18, 0, Math.PI * 2);
+    ctx.fillStyle = plantColor(0, coreBrightness);
     ctx.fill();
 
-    // Damage feedback flash on plant core
+    // Meditative glow ring
+    if (meditativeGlow > 0.01) {
+      ctx.beginPath();
+      ctx.arc(plant.basePosition.x, plant.basePosition.y, 24, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0, 255, 180, ${meditativeGlow})`;
+      ctx.fill();
+    }
+
+    // Strobe pulse ring
+    if (plant.anomalousEvent === "strobe") {
+      const pulseAlpha = Math.max(0, Math.sin(plant.time * 12) * 0.3);
+      ctx.beginPath();
+      ctx.arc(plant.basePosition.x, plant.basePosition.y, 28, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
+      ctx.fill();
+    }
+
+    // Damage feedback flash
     if (damageFlash > 0.01) {
       ctx.beginPath();
-      ctx.arc(
-        plant.basePosition.x,
-        plant.basePosition.y,
-        22,
-        0,
-        Math.PI * 2
-      );
+      ctx.arc(plant.basePosition.x, plant.basePosition.y, 22, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 72, 72, ${
         SimulationEngine.DAMAGE_FLASH_BASE_ALPHA +
         damageFlash * SimulationEngine.DAMAGE_FLASH_PEAK_ALPHA
@@ -404,7 +436,7 @@ export class SimulationEngine {
       const tentacle = plant.tentacles[ti];
       const segs = tentacle.segments;
 
-      // Draw stem as a smooth curve — no shadow
+      // Draw stem as a smooth curve
       ctx.beginPath();
       ctx.moveTo(segs[0].position.x, segs[0].position.y);
 
@@ -420,7 +452,14 @@ export class SimulationEngine {
       ctx.lineTo(lastSeg.position.x, lastSeg.position.y);
 
       const t = ti / Math.max(1, plant.tentacles.length - 1);
-      ctx.strokeStyle = plantColor(t, 0.92);
+
+      // Mourning: darken the drooping tentacle
+      let tentacleAlpha = 0.92;
+      if (tentacle.mourningTimer > 0) {
+        tentacleAlpha = 0.45;
+      }
+
+      ctx.strokeStyle = plantColor(t, tentacleAlpha);
       ctx.lineWidth = cfg.tentacleThickness * (1 - t * 0.3);
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -437,15 +476,24 @@ export class SimulationEngine {
     colorT: number
   ): void {
     const tip = this.plant.getTip(tentacle);
-    const jawAngle = tentacle.jawOpen * 0.5; // Max opening angle
+    const jawAngle = tentacle.jawOpen * 0.5;
     const jawSize = this.config.jawSize;
-    const fillColor = plantColor(colorT + 0.2, 0.96);
+
+    // Curiosity: slightly different jaw color
+    let fillColor: string;
+    if (tentacle.curiosityTimer > 0) {
+      fillColor = hsla(50, 80, 60, 0.96); // Yellowish — inspecting
+    } else if (tentacle.mourningTimer > 0) {
+      fillColor = hsla(0, 40, 30, 0.6); // Dark red — mourning
+    } else {
+      fillColor = plantColor(colorT + 0.2, 0.96);
+    }
 
     ctx.save();
     ctx.translate(tip.position.x, tip.position.y);
     ctx.rotate(tip.angle);
 
-    // Upper jaw — solid fill, no shadow
+    // Upper jaw
     ctx.beginPath();
     ctx.arc(0, 0, jawSize, -jawAngle - 0.4, -jawAngle + 0.1, false);
     ctx.lineTo(0, 0);
@@ -464,15 +512,41 @@ export class SimulationEngine {
     ctx.restore();
   }
 
+  /**
+   * Strobe effect: concentric pulse rings emanating from the base.
+   */
+  private renderStrobeEffect(
+    ctx: CanvasRenderingContext2D,
+    circles: Circle[],
+    plant: PlantState
+  ): void {
+    const baseX = plant.basePosition.x;
+    const baseY = plant.basePosition.y;
+    const time = plant.time;
+    const numRings = 3;
+
+    for (let i = 0; i < numRings; i++) {
+      const phase = (time * 3 + i * 0.7) % 2;
+      const radius = phase * 200;
+      const alpha = (1 - phase / 2) * 0.12;
+      if (alpha <= 0) continue;
+
+      ctx.beginPath();
+      ctx.arc(baseX, baseY, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
   private renderParticles(ctx: CanvasRenderingContext2D): void {
     const pool = this.particles.getPool();
 
-    // Angular fragment shards — drawn as short rotated lines
     ctx.lineCap = "butt";
     for (const p of pool) {
       if (!p.active) continue;
       const alpha = p.life / p.maxLife;
-      const len = p.size * alpha * 2.5; // shard length
+      const len = p.size * alpha * 2.5;
       const halfLen = len * 0.5;
       const cosR = Math.cos(p.rotation);
       const sinR = Math.sin(p.rotation);
@@ -513,12 +587,8 @@ export class SimulationEngine {
   }
 
   private getIntegrityColor(integrity: number): string {
-    if (integrity <= 25) {
-      return "rgba(255, 86, 86, 0.86)";
-    }
-    if (integrity <= 50) {
-      return "rgba(255, 191, 88, 0.82)";
-    }
+    if (integrity <= 25) return "rgba(255, 86, 86, 0.86)";
+    if (integrity <= 50) return "rgba(255, 191, 88, 0.82)";
     return "rgba(255, 255, 255, 0.35)";
   }
 
@@ -543,9 +613,6 @@ export class SimulationEngine {
 
   /**
    * Neural Pulse: Calculated sacrifice.
-   * If an orb is about to escape and the entity's intelligence determines
-   * it's physically unreachable, it releases a pulse that consumes 3 HP
-   * to destroy the orb, preventing 5 HP loss.
    */
   private processNeuralPulses(s: any): void {
     const cfg = this.config;

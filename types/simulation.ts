@@ -30,6 +30,20 @@ export interface Circle {
   consumed: boolean;
   /** Whether a tentacle is already targeting this circle */
   targeted: boolean;
+  /** Anomaly type that modifies orb behavior */
+  anomaly: OrbAnomaly;
+  /** Phase for ghost fade in/out (0 = fully visible, 1 = invisible) */
+  ghostPhase: number;
+  /** Strength of magnetic pull/repulsion toward tentacle tips */
+  magneticStrength: number;
+  /** Timer until next flutter dodge maneuver */
+  flutterTimer: number;
+  /** Target Y for flutter dodge; NaN if not dodging */
+  flutterTargetY: number;
+  /** Whether the orb is currently visible (ghost orbs fade in/out) */
+  visible: boolean;
+  /** Last known position before ghosting — for predictive memory */
+  lastKnownPosition: Vector2D | null;
 }
 
 // ─── Plant Structures ───────────────────────────────────────────────────────
@@ -41,6 +55,14 @@ export interface PlantSegment {
 }
 
 export type PlantBehaviorMode = "idle" | "hunting" | "defensive" | "desperate";
+
+// ─── Stochastic Sentience Types ──────────────────────────────────────────
+
+export type MetabolicState = "meditative" | "hyperfixation" | "entropy";
+
+export type AnomalousEventType = "whirlpool" | "basePulse" | "strobe";
+
+export type OrbAnomaly = "normal" | "flutter" | "ghost" | "magnetic";
 
 // ─── Spatial Threat Assessment ──────────────────────────────────────────────
 
@@ -100,6 +122,18 @@ export interface PlantTentacle {
   lastTipTarget: Vector2D;
   /** Small per-tentacle offset for intentional motion variety */
   noisePhase: number;
+  /** Mourning reflex timer — tentacle droops after losing an orb (seconds remaining) */
+  mourningTimer: number;
+  /** Curiosity lag timer — tentacle follows orb at distance before snapping (seconds remaining) */
+  curiosityTimer: number;
+  /** Target circle id being inspected during curiosity lag */
+  curiosityTarget: number | null;
+  /** Invisible drifting point that adds micro-movements (nervous energy / breathing) */
+  vanityTarget: Vector2D;
+  /** Phase offset for vanity target drift */
+  vanityPhase: number;
+  /** Shiver intensity — rapid non-functional oscillation (0 = none, 1 = full) */
+  shiverIntensity: number;
 }
 
 export interface PlantState {
@@ -120,6 +154,28 @@ export interface PlantState {
   learning: PlantLearningState;
   /** Spatial threat assessment rebuilt each frame — the organism's "vision" */
   threatMap: ThreatMap;
+  /** Current metabolic rhythm — modulates all heuristics on a 2-3 minute cycle */
+  metabolicState: MetabolicState;
+  /** Timer for metabolic state cycle (seconds since last transition) */
+  metabolicTimer: number;
+  /** Duration of current metabolic phase before next transition */
+  metabolicPhaseDuration: number;
+  /** Blend factor 0→1 for transitioning between metabolic states */
+  metabolicTransition: number;
+  /** Previous metabolic state (for blending) */
+  metabolicPrev: MetabolicState;
+  /** Hue that the plant is obsessed with during hyperfixation, null otherwise */
+  hyperfixationHue: number | null;
+  /** Currently active anomalous event, null if none */
+  anomalousEvent: AnomalousEventType | null;
+  /** Timer for anomalous event duration (seconds remaining) */
+  anomalousEventTimer: number;
+  /** Cooldown until next anomalous event can trigger */
+  anomalousEventCooldown: number;
+  /** Global chaos factor 0→1 — weights intensity of all anomalous behaviors */
+  chaosFactor: number;
+  /** Phase for synchronized breathing sway across all tentacles */
+  breathPhase: number;
 }
 
 // ─── Particle System ────────────────────────────────────────────────────────
@@ -220,6 +276,72 @@ export interface SimulationConfig {
   neuralPulseCost: number;
   /** ETA threshold below which a neural pulse is triggered for unreachable orbs */
   neuralPulseETA: number;
+
+  // ─── Stochastic Sentience ──────────────────────────────────────────────
+
+  // Metabolic Rhythms
+  /** Minimum duration of a metabolic phase (seconds) */
+  metabolicPhaseMin: number;
+  /** Maximum duration of a metabolic phase (seconds) */
+  metabolicPhaseMax: number;
+  /** Blend speed between metabolic states (higher = faster transition) */
+  metabolicBlendSpeed: number;
+
+  // Orb Anomalies
+  /** Probability that a spawned orb is a flutter orb (0-1) */
+  flutterOrbChance: number;
+  /** Probability that a spawned orb is a ghost orb (0-1) */
+  ghostOrbChance: number;
+  /** Probability that a spawned orb is a magnetic orb (0-1) */
+  magneticOrbChance: number;
+  /** Flutter dodge interval range min (seconds) */
+  flutterDodgeIntervalMin: number;
+  /** Flutter dodge interval range max (seconds) */
+  flutterDodgeIntervalMax: number;
+  /** Flutter dodge distance (pixels) */
+  flutterDodgeDistance: number;
+  /** Ghost orb full fade cycle duration (seconds) */
+  ghostCycleDuration: number;
+  /** Ghost orb minimum visibility (0 = invisible, 1 = fully visible) */
+  ghostMinVisibility: number;
+  /** Magnetic orb pull/repel strength */
+  magneticStrength: number;
+  /** Magnetic orb influence radius (pixels) */
+  magneticRadius: number;
+
+  // Psychological Expressions
+  /** Duration of mourning droop when an orb escapes (seconds) */
+  mourningDuration: number;
+  /** Duration of curiosity lag before snapping jaw (seconds) */
+  curiosityLagDuration: number;
+  /** Distance tentacle follows orb during curiosity lag (pixels) */
+  curiosityFollowDistance: number;
+  /** Probability of curiosity lag occurring on a capture attempt (0-1) */
+  curiosityLagChance: number;
+  /** Duration of synchronized shiver from high-speed orbs (seconds) */
+  shiverDuration: number;
+  /** Speed threshold to trigger synchronized shiver */
+  shiverSpeedThreshold: number;
+
+  // Stochastic Mutations
+  /** Cooldown between anomalous events (seconds) */
+  anomalousEventCooldown: number;
+  /** Duration of each anomalous event (seconds) */
+  anomalousEventDuration: number;
+  /** Whirlpool rotation speed (radians/second) */
+  whirlpoolSpeed: number;
+
+  // Adaptive Randomness
+  /** Probability of picking a random/wrong target instead of optimal (0-1) */
+  randomTargetChance: number;
+  /** Speed wave: duration of acceleration phase (seconds) */
+  speedWaveRiseDuration: number;
+  /** Speed wave: duration of calm phase (seconds) */
+  speedWaveCalmDuration: number;
+  /** Speed wave: multiplier during calm phase (0-1) */
+  speedWaveCalmMultiplier: number;
+  /** Speed wave: multiplier during spike phase (>1) */
+  speedWaveSpikeMultiplier: number;
 }
 
 // ─── Engine State ───────────────────────────────────────────────────────────
@@ -242,4 +364,10 @@ export interface SimulationState {
   nextCircleId: number;
   canvasWidth: number;
   canvasHeight: number;
+  /** Speed wave phase for velocity breath system */
+  speedWavePhase: number;
+  /** Current speed wave multiplier applied to speed bonus */
+  speedWaveMultiplier: number;
+  /** Set of circle ids that escaped this frame (for mourning reflex) */
+  escapedCircleIds: number[];
 }
