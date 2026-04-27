@@ -195,6 +195,12 @@ export class SimulationEngine {
     // ─── Update Particles ─────────────────────────────────────────
     this.particles.update(dt);
 
+    // ─── Neural Pulse: calculated sacrifice for unreachable threats ──
+    // The organism detects orbs about to escape that no tentacle can
+    // physically intercept. Rather than lose 5 integrity passively, it
+    // spends 3 integrity to neutralize the orb — a conscious trade-off.
+    this.processNeuralPulses(s);
+
     // ─── Cleanup consumed/off-screen circles ──────────────────────
     const survivors: Circle[] = [];
     for (const circle of s.circles) {
@@ -533,5 +539,35 @@ export class SimulationEngine {
 
   isCollapseComplete(): boolean {
     return this.state.collapseComplete;
+  }
+
+  /**
+   * Neural Pulse: Calculated sacrifice.
+   * If an orb is about to escape and the entity's intelligence determines
+   * it's physically unreachable, it releases a pulse that consumes 3 HP
+   * to destroy the orb, preventing 5 HP loss.
+   */
+  private processNeuralPulses(s: any): void {
+    const cfg = this.config;
+    const maxReachWithSurge = cfg.segmentLength * cfg.segmentsPerTentacle * cfg.surgeReachMultiplier;
+
+    for (const circle of s.circles) {
+      if (circle.consumed) continue;
+
+      const speed = Math.abs(circle.velocity.x);
+      const eta = speed > 1 ? (circle.position.x - (-50)) / speed : Infinity;
+
+      if (eta < cfg.neuralPulseETA) {
+        const dx = circle.position.x - s.plant.basePosition.x;
+        const dy = circle.position.y - s.plant.basePosition.y;
+        const distFromBase = Math.sqrt(dx * dx + dy * dy);
+
+        if (distFromBase > maxReachWithSurge * 1.05) {
+          circle.consumed = true;
+          this.applyIntegrityDamage(cfg.neuralPulseCost);
+          this.particles.emit(circle.position, circle.hue);
+        }
+      }
+    }
   }
 }

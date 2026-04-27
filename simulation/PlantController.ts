@@ -94,6 +94,8 @@ export class PlantController {
     return {
       basePosition: { x: baseX, y: baseY },
       anchorY: baseY,
+      targetAnchorY: baseY,
+      baseVelocityY: 0,
       tentacles,
       time: 0,
       mode: "idle",
@@ -124,12 +126,6 @@ export class PlantController {
   ): void {
     plant.time += dt;
 
-    // Gentle base sway — derived from a stable anchor so the position never
-    // drifts and is independent of frame rate. anchorY is set on
-    // create/resize and represents the canonical vertical center.
-    plant.basePosition.y =
-      plant.anchorY + layeredSine(plant.time * 0.3, 0) * 4;
-
     // Claims are rebuilt each frame so tentacles can re-coordinate as threats change.
     for (let i = 0; i < circles.length; i++) {
       circles[i].targeted = false;
@@ -137,6 +133,9 @@ export class PlantController {
 
     // Rebuild spatial awareness before any decision-making.
     this.buildThreatMap(plant, circles, canvasWidth);
+
+    // ── Somatic Mobility: slide the base toward the threat center ──────────
+    this.updateSomaticPosition(plant, circles, dt, canvasHeight);
 
     this.updateBehaviorState(plant, circles, dt, canvasWidth, integrity);
 
@@ -265,9 +264,16 @@ export class PlantController {
           ? 0.9
           : 0.98 + plant.learning.aggression * 0.06;
 
+    // Surge extension: when the organism senses critical threats just outside
+    // normal reach, it strains its fibers to extend beyond comfortable limits.
+    const surgeActive = isDesperate || plant.mode === "defensive";
+    const effectiveMaxReach = surgeActive
+      ? maxReach * cfg.surgeReachMultiplier
+      : maxReach;
+
     tentacle.desiredReach = lerpScalar(
       tentacle.desiredReach,
-      maxReach * reachBias,
+      effectiveMaxReach * reachBias,
       dt * 3.2
     );
 
@@ -672,7 +678,68 @@ export class PlantController {
     return { position: last.position, angle: last.angle };
   }
 
+
   // ─── Survival Intelligence Methods ──────────────────────────────────────
+
+  /**
+   * Somatic mobility: the organism slides its base along the left wall
+   * to align with the urgency-weighted centroid of incoming threats.
+   * Without this, orbs at the vertical extremes are physically unreachable.
+   */
+  private updateSomaticPosition(
+    plant: PlantState,
+    circles: Circle[],
+    dt: number,
+    canvasHeight: number
+  ): void {
+    const cfg = this.config;
+
+    // Calculate the urgency-weighted centroid of all active threats.
+    // More dangerous orbs (closer, faster) pull the base harder.
+    let weightedY = 0;
+    let totalWeight = 0;
+
+    for (let i = 0; i < circles.length; i++) {
+      const c = circles[i];
+      if (c.consumed) continue;
+
+      const speed = Math.abs(c.velocity.x);
+      const eta = speed > 1
+        ? (c.position.x - PlantController.ESCAPE_X) / speed
+        : 10;
+
+      // Urgency weight: close + fast = heavy pull. Distant + slow = weak pull.
+      const urgencyWeight = 1 / (0.5 + eta);
+      weightedY += c.position.y * urgencyWeight;
+      totalWeight += urgencyWeight;
+    }
+
+    // When no threats exist, drift back to canvas center.
+    const targetY = totalWeight > 0.01
+      ? weightedY / totalWeight
+      : canvasHeight * 0.5;
+
+    // Clamp to prevent the base from going off-screen.
+    plant.targetAnchorY = clamp(targetY, 60, canvasHeight - 60);
+
+    // Damped spring movement — momentum prevents jitter, damping prevents overshoot.
+    const delta = plant.targetAnchorY - plant.anchorY;
+    const acceleration = delta * 8; // Spring constant
+    plant.baseVelocityY += acceleration * dt;
+    plant.baseVelocityY *= cfg.baseMoveDamping;
+
+    // Clamp max velocity to prevent teleporting.
+    const maxV = cfg.baseMoveSpeed;
+    if (plant.baseVelocityY > maxV) plant.baseVelocityY = maxV;
+    if (plant.baseVelocityY < -maxV) plant.baseVelocityY = -maxV;
+
+    plant.anchorY += plant.baseVelocityY * dt;
+    plant.anchorY = clamp(plant.anchorY, 60, canvasHeight - 60);
+
+    // Final position: anchor + subtle organic sway.
+    plant.basePosition.y =
+      plant.anchorY + layeredSine(plant.time * 0.3, 0) * 3;
+  }
 
   /** Pre-allocate the threat map structure once — reused every frame. */
   private createThreatMap(): ThreatMap {

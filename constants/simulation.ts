@@ -60,6 +60,17 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   desperationThreshold: 20,    // Below this integrity, the organism enters last-stand
   triageRedETA: 0.5,           // Seconds to escape that trigger critical priority
   triageBlackMargin: 0.2,      // Seconds below which an unreachable orb is abandoned
+
+  // ─── Somatic Mobility ──────────────────────────────────────────────
+  baseMoveSpeed: 200,            // Max vertical slide speed (px/s)
+  baseMoveDamping: 0.85,         // Damping to prevent jitter
+
+  // ─── Reach Surge ───────────────────────────────────────────────────
+  surgeReachMultiplier: 1.2,     // 20% temporary reach extension under critical pressure
+
+  // ─── Neural Pulse ──────────────────────────────────────────────────
+  neuralPulseCost: 3,            // Voluntary sacrifice (less than 5pt escape damage)
+  neuralPulseETA: 0.35,          // Trigger window — orb about to escape, physically unreachable
 };
 
 export const MOBILE_CONFIG_OVERRIDES: Partial<SimulationConfig> = {

@@ -107,6 +107,10 @@ export interface PlantState {
   basePosition: Vector2D;
   /** Canonical vertical center; basePosition.y oscillates around this without drifting. */
   anchorY: number;
+  /** Desired vertical position the organism is migrating toward */
+  targetAnchorY: number;
+  /** Smoothed vertical velocity for damped base movement */
+  baseVelocityY: number;
   tentacles: PlantTentacle[];
   /** Global time for idle animation */
   time: number;
@@ -200,6 +204,22 @@ export interface SimulationConfig {
   triageRedETA: number;
   /** ETA (seconds) below which an unreachable orb is abandoned (BLACK triage) */
   triageBlackMargin: number;
+
+  // Somatic Mobility
+  /** Maximum vertical speed the base can slide along the wall (px/s) */
+  baseMoveSpeed: number;
+  /** Damping factor for base movement — prevents jitter */
+  baseMoveDamping: number;
+
+  // Reach Surge
+  /** Maximum temporary reach extension multiplier under critical pressure */
+  surgeReachMultiplier: number;
+
+  // Neural Pulse (calculated sacrifice)
+  /** Integrity cost of a neural pulse — voluntary sacrifice to prevent worse loss */
+  neuralPulseCost: number;
+  /** ETA threshold below which a neural pulse is triggered for unreachable orbs */
+  neuralPulseETA: number;
 }
 
 // ─── Engine State ───────────────────────────────────────────────────────────
